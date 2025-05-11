@@ -68,7 +68,7 @@ def preprocessing_pipeline(df, stopwords, output_dir, filename, start_token='<s>
     
     save_data(df, output_dir, filename)
     
-    return df
+    return df, length_summary_95, length_text_95
 
 def get_data_distribution(df, figures_dir, dataset_name):
     """
@@ -95,4 +95,5 @@ def get_data_distribution(df, figures_dir, dataset_name):
     plt.suptitle("Distribution of Text and Summary Lengths")
     plt.savefig(os.path.join(figures_dir, f"{dataset_name}_text_summary_length_distribution.png"))
     plt.show()
+    plt.close(fig)
     
