@@ -140,7 +140,19 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
 
     plot_losses(figures_dir, plot_train_losses, plot_val_losses)
     
-def main():
+def main(root_dir, 
+    hidden_size = 128,
+    name = "WikiHow",
+    max_length = 50,
+    lr = 0.001,
+    weight_decay = 1e-4,
+    n_epochs = 50,
+    print_every = 10,
+    plot_every = 10,
+    save_every = 10,
+    ):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     # Random seed for reproducibility
     random.seed(42)
     torch.manual_seed(42)
@@ -148,44 +160,7 @@ def main():
     torch.backends.cudnn.benchmark = False
     torch.cuda.manual_seed_all(42)
     
-    # Parameters
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # max_length = 50
-    # lr = 0.001
-    # weight_decay = 1e-4
-    # n_epochs = 50
-    # print_every = 10
-    # plot_every = 10
-    # save_every = 10
-    
-    hidden_size = 128
-    name = "WikiHow"
-    
-    # Argparse command line arguments
-    parser = argparse.ArgumentParser(description='Train a Seq2Seq model with attention.')
-    parser.add_argument('--name', type=str, default=name, help='Name of the dataset')
-    parser.add_argument('--hidden_size', type=int, default=hidden_size, help='Hidden size of the model')
-    parser.add_argument('--max_length', type=int, default=15000, help='Maximum length of the sequences')
-    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
-    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay')
-    parser.add_argument('--n_epochs', type=int, default=50, help='Number of epochs')
-    parser.add_argument('--print_every', type=int, default=10, help='Print every n epochs')
-    parser.add_argument('--plot_every', type=int, default=10, help='Plot every n epochs')
-    parser.add_argument('--save_every', type=int, default=10, help='Save every n epochs')
-    args = parser.parse_args()
-    name = args.name
-    hidden_size = args.hidden_size
-    max_length = args.max_length
-    lr = args.learning_rate
-    weight_decay = args.weight_decay
-    n_epochs = args.n_epochs
-    print_every = args.print_every
-    plot_every = args.plot_every
-    save_every = args.save_every
-    
     # Get directories
-    root_dir = Path.cwd().parent
-
     dataset_dir = os.path.join(root_dir, 'data', name)
     save_dir = os.path.join(root_dir, 'checkpoints', name)
     figures_dir = os.path.join(root_dir, 'figures', name)
@@ -231,4 +206,39 @@ def main():
     print('Test loss: {:.4f}'.format(test_loss))
 
 if __name__ == "__main__":
-    main()
+    # Argparse command line arguments
+    parser = argparse.ArgumentParser(description='Train a Seq2Seq model with attention.')
+    parser.add_argument('--name', type=str, default=name, help='Name of the dataset')
+    parser.add_argument('--directory', type=str, default='../data', help='Directory of the dataset')
+    parser.add_argument('--hidden_size', type=int, default=128, help='Hidden size of the model')
+    parser.add_argument('--max_length', type=int, default=15000, help='Maximum length of the sequences')
+    parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay')
+    parser.add_argument('--n_epochs', type=int, default=50, help='Number of epochs')
+    parser.add_argument('--print_every', type=int, default=10, help='Print every n epochs')
+    parser.add_argument('--plot_every', type=int, default=10, help='Plot every n epochs')
+    parser.add_argument('--save_every', type=int, default=10, help='Save every n epochs')
+    
+    args = parser.parse_args()
+    
+    name = args.name
+    hidden_size = args.hidden_size
+    max_length = args.max_length
+    lr = args.learning_rate
+    weight_decay = args.weight_decay
+    n_epochs = args.n_epochs
+    print_every = args.print_every
+    plot_every = args.plot_every
+    save_every = args.save_every
+    root_dir = args.directory
+    
+    main(root_dir = root_dir,
+         hidden_size=hidden_size,
+         name=name,
+         max_length=max_length,
+         lr=lr,
+         weight_decay=weight_decay,
+         n_epochs=n_epochs,
+         print_every=print_every,
+         plot_every=plot_every,
+         save_every=save_every)
