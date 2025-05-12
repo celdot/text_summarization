@@ -3,10 +3,11 @@ import pickle
 
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 import torch
 from sklearn.model_selection import train_test_split
-from tensorflow.keras.preprocessing.sequence import pad_sequences
 from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.utils import pad_sequences
 from torch.utils.data import DataLoader, RandomSampler, TensorDataset
 
 
@@ -20,25 +21,23 @@ def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, m
     else:
         feature_tokenizer = Tokenizer(num_words=max_features)
         feature_tokenizer.fit_on_texts(X_train)
-        if feature_tokenizer.word_index["SOS"] != 1 or feature_tokenizer.word_index["EOS"] != 2
-            # Switch the index of SOS and EOS tokens
-            temp_word_1 = feature_tokenizer.index_word[1]
-            temp_word_2 = feature_tokenizer.index_word[2]
-            temp_index_1 = feature_tokenizer.word_index["SOS"]
-            temp_index_2 = feature_tokenizer.word_index["EOS"]
-            feature_tokenizer.index_word[1] = "SOS"
-            feature_tokenizer.index_word[2] = "EOS"
-            feature_tokenizer.word_index["SOS"] = 1
-            feature_tokenizer.word_index["EOS"] = 2
-            feature_tokenizer.index_word[temp_index_1] = temp_word_1
-            feature_tokenizer.index_word[temp_index_2] = temp_word_2
-            feature_tokenizer.word_index[temp_word_1] = temp_index_1
-            feature_tokenizer.word_index[temp_word_2] = temp_index_2
+        # Switch the index of SOS and EOS tokens
+        temp_word_1 = feature_tokenizer.index_word[1]
+        temp_word_2 = feature_tokenizer.index_word[2]
+        feature_tokenizer.index_word[1] = "SOS"
+        feature_tokenizer.index_word[2] = "EOS"
+        feature_tokenizer.word_index["SOS"] = 1
+        feature_tokenizer.word_index["EOS"] = 2
+        nb_word_feature = len(feature_tokenizer.index_word)
+        feature_tokenizer.index_word[nb_word_feature+1] = temp_word_1
+        feature_tokenizer.index_word[nb_word_feature+2] = temp_word_2
+        feature_tokenizer.word_index[temp_word_1] = nb_word_feature+1
+        feature_tokenizer.word_index[temp_word_2] = nb_word_feature+2
         # Save the tokenizer with pickle
         with open(os.path.join(dataset_dir,'feature_tokenizer.pickle'), 'wb') as handle:
             pickle.dump(feature_tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
         # Save vocabulary dictionary with pickle
-        with open(os.path.join(dataset_dir,'feature_tokenizer.pickle'), 'wb') as handle:
+        with open(os.path.join(dataset_dir,'feature_vocab.pickle'), 'wb') as handle:
             pickle.dump(feature_tokenizer.index_word, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     X_train = feature_tokenizer.texts_to_sequences(X_train)
@@ -53,20 +52,18 @@ def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, m
     else:
         label_tokenizer = Tokenizer(num_words=max_features)
         label_tokenizer.fit_on_texts(y_train)
-        if label_tokenizer.word_index["SOS"] != 1 or label_tokenizer.word_index["EOS"] != 2:
-            # Switch the index of SOS and EOS tokens
-            temp_word_1 = label_tokenizer.index_word[1]
-            temp_word_2 = label_tokenizer.index_word[2]
-            temp_index_1 = label_tokenizer.word_index["SOS"]
-            temp_index_2 = label_tokenizer.word_index["EOS"]
-            label_tokenizer.index_word[1] = "SOS"
-            label_tokenizer.index_word[2] = "EOS"
-            label_tokenizer.word_index["SOS"] = 1
-            label_tokenizer.word_index["EOS"] = 2
-            label_tokenizer.index_word[temp_index_1] = temp_word_1
-            label_tokenizer.index_word[temp_index_2] = temp_word_2
-            label_tokenizer.word_index[temp_word_1] = temp_index_1
-            label_tokenizer.word_index[temp_word_2] = temp_index_2
+        # Switch the index of SOS and EOS tokens
+        temp_word_1 = label_tokenizer.index_word[1]
+        temp_word_2 = label_tokenizer.index_word[2]
+        label_tokenizer.index_word[1] = "SOS"
+        label_tokenizer.index_word[2] = "EOS"
+        label_tokenizer.word_index["SOS"] = 1
+        label_tokenizer.word_index["EOS"] = 2
+        nb_word_label = len(label_tokenizer.index_word)
+        label_tokenizer.index_word[nb_word_label+1] = temp_word_1
+        label_tokenizer.index_word[nb_word_label+2] = temp_word_2
+        label_tokenizer.word_index[temp_word_1] = nb_word_label+1
+        label_tokenizer.word_index[temp_word_2] = nb_word_label+2
         # Save tokenizer with pickle
         with open(os.path.join(dataset_dir,'label_tokenizer.pickle'), 'wb') as handle:
             pickle.dump(label_tokenizer, handle, protocol=pickle.HIGHEST_PROTOCOL)
@@ -101,14 +98,20 @@ def delete_padding_rows(X_train, X_val, X_test, y_train, y_val, y_test):
     """
     Deletes rows that only contain padding.
     """
-    X_train = X_train[~np.all(X_train == 0, axis=1)]
-    y_train = y_train[~np.all(X_train == 0, axis=1)]
+    # For training set
+    mask_train = ~np.all(X_train == 0, axis=1)
+    X_train = X_train[mask_train]
+    y_train = y_train[mask_train]
     
-    X_val = X_val[~np.all(X_val == 0, axis=1)]
-    y_val = y_val[~np.all(X_val == 0, axis=1)]
-    
-    X_test = X_test[~np.all(X_test == 0, axis=1)]
-    y_test = y_test[~np.all(X_test == 0, axis=1)]
+    # For validation set
+    mask_val = ~np.all(X_val == 0, axis=1)
+    X_val = X_val[mask_val]
+    y_val = y_val[mask_val]
+
+    # For test set
+    mask_test = ~np.all(X_test == 0, axis=1)
+    X_test = X_test[mask_test]
+    y_test = y_test[mask_test]
 
     return X_train, X_val, X_test, y_train, y_val, y_test
 

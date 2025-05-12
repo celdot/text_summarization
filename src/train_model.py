@@ -12,6 +12,7 @@ from utils.processing import processing_pipeline
 
 plt.switch_backend('agg')
 import argparse
+import pickle
 from pathlib import Path
 
 import matplotlib.ticker as ticker
@@ -152,13 +153,13 @@ def main(root_dir,
     save_every = 10,
     ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
     
     # Random seed for reproducibility
-    random.seed(42)
-    torch.manual_seed(42)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.cuda.manual_seed_all(42)
+    random.seed(5719)
+    np.random.seed(5719)
+    #torch.manual_seed(5719)
+    #torch.use_deterministic_algorithms(True)
     
     # Get directories
     dataset_dir = os.path.join(root_dir, 'data', name)
@@ -179,9 +180,9 @@ def main(root_dir,
             test_dataloader = pickle.load(handle)
     
     # Load the vocabulary
-    with open('feature_tokenizer.pickle', 'rb') as handle:
+    with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
             feature_tokenizer = pickle.load(handle)
-    with open('label_tokenizer.pickle', 'rb') as handle:
+    with open(os.path.join(dataset_dir, 'label_tokenizer.pickle'), 'rb') as handle:
             label_tokenizer = pickle.load(handle)
             
     num_words_text = len(feature_tokenizer.word_index) + 1 # because we are using 1-based indexing (0 is reserved for padding)
@@ -208,7 +209,7 @@ def main(root_dir,
 if __name__ == "__main__":
     # Argparse command line arguments
     parser = argparse.ArgumentParser(description='Train a Seq2Seq model with attention.')
-    parser.add_argument('--name', type=str, default=name, help='Name of the dataset')
+    parser.add_argument('--name', type=str, default="WikiHow", help='Name of the dataset')
     parser.add_argument('--directory', type=str, default='../data', help='Directory of the dataset')
     parser.add_argument('--hidden_size', type=int, default=128, help='Hidden size of the model')
     parser.add_argument('--max_length', type=int, default=15000, help='Maximum length of the sequences')
