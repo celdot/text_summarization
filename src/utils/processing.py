@@ -115,7 +115,19 @@ def delete_padding_rows(X_train, X_val, X_test, y_train, y_val, y_test):
 
     return X_train, X_val, X_test, y_train, y_val, y_test
 
-def processing_pipeline(dataset_dir, name, batch_size = 32, num_workers = 2, max_features = 15000, load_tokenizer = False):
+def save_as_tensor(dataset_dir, data, filename):
+    """
+    Save the data as a torch tensor.
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Saving {filename}...")
+    if os.path.exists(os.path.join(dataset_dir, filename)):
+        print(f"{filename} already exists. Skipping.")
+        return
+    data = torch.from_numpy(data).float().cuda(0)
+    torch.save(data, os.path.join(dataset_dir, filename))
+
+def processing_pipeline(dataset_dir, name, max_features = 15000, load_tokenizer = False):
     """
     Process the data by splitting it into train, validation, and test sets,
     tokenizing the data, and adding padding to the sequences.
@@ -154,28 +166,11 @@ def processing_pipeline(dataset_dir, name, batch_size = 32, num_workers = 2, max
     
     print("index of start and end token", feature_tokenizer.word_index["SOS"], feature_tokenizer.word_index["EOS"])
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    # Convert to torch tensors
-    train_data = TensorDataset(torch.LongTensor(X_train).to(device), torch.LongTensor(y_train).to(device))
-    val_data = TensorDataset(torch.LongTensor(X_val).to(device), torch.LongTensor(y_val).to(device))
-    test_data = TensorDataset(torch.LongTensor(X_test).to(device), torch.LongTensor(y_test).to(device))
+    save_as_tensor(dataset_dir, X_train, "x_train.pt")
+    save_as_tensor(dataset_dir, X_val, "x_val.pt")
+    save_as_tensor(dataset_dir, X_test, "x_test.pt")
+    save_as_tensor(dataset_dir, y_train, "y_train.pt")
+    save_as_tensor(dataset_dir, y_val, "y_val.pt")
+    save_as_tensor(dataset_dir, y_test, "y_test.pt")
     
-    # Create samplers
-    train_sampler = RandomSampler(train_data)
-    val_sampler = RandomSampler(val_data)
-    test_sampler = RandomSampler(test_data)
-    
-    # Create dataloaders
-    train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=batch_size, num_workers=num_workers)
-    val_dataloader = DataLoader(val_data, sampler=val_sampler, batch_size=batch_size, num_workers=num_workers)
-    test_dataloader = DataLoader(test_data, sampler=test_sampler, batch_size=batch_size, num_workers=num_workers)
-    
-    # Save dataloaders
-    with open(os.path.join(dataset_dir, 'train_dataloader.pickle'), 'wb') as handle:
-        pickle.dump(train_dataloader, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    with open(os.path.join(dataset_dir, 'val_dataloader.pickle'), 'wb') as handle:
-        pickle.dump(val_dataloader, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    with open(os.path.join(dataset_dir, 'test_dataloader.pickle'), 'wb') as handle:
-        pickle.dump(test_dataloader, handle, protocol=pickle.HIGHEST_PROTOCOL)
-    
-    return train_dataloader, val_dataloader, test_dataloader, num_words_text, num_words_summary
+    return num_words_text, num_words_summary

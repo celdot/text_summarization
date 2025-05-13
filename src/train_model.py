@@ -147,6 +147,8 @@ def main(root_dir,
     max_length = 50,
     lr = 0.001,
     weight_decay = 1e-4,
+    batch_size = 32,
+    num_workers = 4,
     n_epochs = 50,
     print_every = 10,
     plot_every = 10,
@@ -172,12 +174,28 @@ def main(root_dir,
     criterion = nn.NLLLoss()
     
     # Load the dataset
-    with open(os.path.join(dataset_dir, 'train_dataloader.pickle'), 'rb') as handle:
-            train_dataloader = pickle.load(handle)
-    with open(os.path.join(dataset_dir, 'val_dataloader.pickle'), 'rb') as handle:
-            val_dataloader = pickle.load(handle)
-    with open(os.path.join(dataset_dir, 'test_dataloader.pickle'), 'rb') as handle:
-            test_dataloader = pickle.load(handle)
+    X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"))
+    X_val = torch.load(os.path.join(dataset_dir, "x_val.pt"))
+    X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
+    y_train = torch.load(os.path.join(dataset_dir, "y_train.pt"))
+    y_val = torch.load(os.path.join(dataset_dir, "y_val.pt"))
+    y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))
+
+    train_dataloader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(X_train, y_train),
+        batch_size=batch_size,
+        shuffle=True,
+    )
+    val_dataloader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(X_val, y_val),
+        batch_size=batch_size,
+        shuffle=True,
+    )
+    test_dataloader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(X_test, y_test),
+        batch_size=batch_size,
+        shuffle=True,
+    )
     
     # Load the vocabulary
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
@@ -215,6 +233,8 @@ if __name__ == "__main__":
     parser.add_argument('--max_length', type=int, default=15000, help='Maximum length of the sequences')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay')
+    parser.add_argument('--batch_size', type=float, default=32, help='Batch size')
+    parser.add_argument('--num_workers', type=float, default=4, help='Number of workers (should be 4*nb_GPU')
     parser.add_argument('--n_epochs', type=int, default=50, help='Number of epochs')
     parser.add_argument('--print_every', type=int, default=10, help='Print every n epochs')
     parser.add_argument('--plot_every', type=int, default=10, help='Plot every n epochs')
@@ -232,6 +252,8 @@ if __name__ == "__main__":
     plot_every = args.plot_every
     save_every = args.save_every
     root_dir = args.directory
+    batch_size = args.batch_size
+    num_workers = args.num_workers
     
     main(root_dir = root_dir,
          hidden_size=hidden_size,
@@ -239,6 +261,8 @@ if __name__ == "__main__":
          max_length=max_length,
          lr=lr,
          weight_decay=weight_decay,
+         batch_size = batch_size,
+         num_workers = num_workers, 
          n_epochs=n_epochs,
          print_every=print_every,
          plot_every=plot_every,
