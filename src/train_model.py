@@ -6,6 +6,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from ignite.metrics import Rouge
+from torchtext.data.metrics import bleu_score
 from tqdm import tqdm
 
 from utils.models import AttnDecoderRNN, EncoderRNN
@@ -27,14 +29,14 @@ def plot_losses(figures_dir, train_losses, val_losses):
     fig = plt.figure(figsize=(10, 5))
     plt.plot(train_losses, label='Training Loss')
     plt.plot(val_losses, label='Validation Loss')
-    plt.set_xlabel('Epochs')
-    plt.set_ylabel('Loss')
-    plt.set_title('Training and Validation Losses')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Losses')
     plt.legend()
     plt.savefig(os.path.join(figures_dir, 'losses.png'))
     plt.close(fig)
     
-def evaluate(dataloader, encoder, decoder, criterion):
+def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
     with torch.no_grad():
         for data in dataloader:
@@ -51,6 +53,71 @@ def evaluate(dataloader, encoder, decoder, criterion):
 
     return total_loss / len(dataloader)
 
+def decode_data(text_ids, index2word, EOS_token):
+    """
+    Converts the text ids to words using the index2word mapping.
+    """
+    decoded_words = []
+    for idx in text_ids:
+        if idx.item() == EOS_token:
+            decoded_words.append('<EOS>')
+            break
+        decoded_words.append(index2word[idx.item()])
+    
+    return decoded_words
+
+def compute_summary(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token):
+    """
+    Computes the summary for the given input tensor and target tensor.
+    """
+    input_tensor = input_tensor[0].unsqueeze(0)
+    target_tensor = target_tensor[0].unsqueeze(0)
+
+    encoder_outputs, encoder_hidden = encoder(input_tensor)
+    decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
+
+    # Get the predicted words
+    _, topi = decoder_outputs.topk(1)
+    decoded_words = decode_data(topi.squeeze(), index2word, EOS_token)
+
+    # Get the target words
+    target_words = decode_data(target_tensor, index2word, EOS_token)
+
+    return decoded_words, target_words
+
+def compute_metrics(predictions, targets, n):
+    """
+    Computes the BLEU score and ROUGE score for the predictions and targets.
+    """
+    rouge_metrics = Rouge(variants=["L", "S", n], multiref="best")
+
+    rouge_metrics.update(([predictions], [targets]))
+    metrics = rouge_metrics.compute()
+    metrics["bleu"] = bleu_score(predictions, targets, max_n=n, weights=[1/n]*n)
+
+    return metrics
+
+def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
+    """
+    Evaluates the model on the given dataloader.
+    """
+    encoder.eval()
+    decoder.eval()
+
+    predictions = []
+    targets = []
+
+    with torch.no_grad():
+        for data in dataloader:
+            input_tensor, target_tensor = data
+
+            decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token)
+
+            predictions.append(decoded_words)
+            targets.append(target_words)
+
+    return compute_metrics(predictions, targets, n=2)
+
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
           decoder_optimizer, criterion):
 
@@ -63,9 +130,6 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
         encoder_outputs, encoder_hidden = encoder(input_tensor)
         decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
-
-        print("Predicted:", decoder_outputs[0, :10].argmax(dim=-1).tolist())
-        print("Target:", target_tensor[0, :10].tolist())
 
         loss = criterion(
             decoder_outputs.view(-1, decoder_outputs.size(-1)),
@@ -80,10 +144,10 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
     return total_loss / len(dataloader)
 
-def train(train_dataloader, val_dataloader, encoder, decoder,
-          save_directory, figures_dir,
+def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
+          index2words, EOS_token, save_directory, figures_dir,
           n_epochs= 50, learning_rate=0.001, weight_decay=1e-5,
-          print_every=100, plot_every=100, save_every=100):
+          print_every=100, plot_every=100, save_every=100, print_examples_every=5):
 
     # Initializations
     print('Initializing ...')
@@ -96,7 +160,6 @@ def train(train_dataloader, val_dataloader, encoder, decoder,
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    criterion = nn.NLLLoss(ignore_index=0)
 
     # Training loop
     print("Training...")
@@ -106,18 +169,37 @@ def train(train_dataloader, val_dataloader, encoder, decoder,
         plot_train_loss_total += training_loss
 
         # Evaluate on validation set
-        val_loss = evaluate(val_dataloader, encoder, decoder, criterion)
+        val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
         print_val_loss_total += val_loss
-        plot_val_loss_total += val_loss
+        plot_val_loss_total += val_loss 
 
         # Print progress
         if epoch % print_every == 0:
+                # Compute metrics for validation set
+            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
             print_train_loss_total = print_train_loss_total / print_every
             print_val_loss_total = print_val_loss_total / print_every
-            print('epoch: {}; Percent complete: {:.1f}%; Average training loss: {:.4f}; Average validation loss: {:.4f}.'.format(
+            print('epoch: {}; Average training loss: {:.4f}; Average validation loss: {:.4f}.'.format(
                     epoch, epoch / n_epochs * 100, print_train_loss_total, print_val_loss_total))
+        if epoch % print_examples_every == 0:
+            print('BLEU score: {:.4f}'.format(val_metrics['bleu']))
+            print('ROUGE-L score: {:.4f}'.format(val_metrics['Rouge-L-F']))
+            print('ROUGE-S score: {:.4f}'.format(val_metrics['Rouge-S-F']))
+            print('ROUGE-2 score: {:.4f}'.format(val_metrics['Rouge-2-F']))
+            print('-----------------------------------')
             print_train_loss_total = 0
             print_val_loss_total = 0
+            # Get a random sample from the validation set
+            index = random.randint(0, len(val_dataloader) - 1)
+            for i, data in enumerate(val_dataloader):
+                if i == index:
+                    input_tensor, target_tensor = data
+                    break
+            decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, index2words, EOS_token)
+            print('Input: {}'.format(decode_data(input_tensor, index2words, EOS_token)))
+            print('Target: {}'.format(target_words))
+            print('Predicted: {}'.format(decoded_words))
+            print('-----------------------------------')
 
         # Plot loss progress
         if epoch % plot_every == 0:
@@ -147,7 +229,8 @@ def train(train_dataloader, val_dataloader, encoder, decoder,
 
     plot_losses(figures_dir, plot_train_losses, plot_val_losses)
     
-def main(root_dir, 
+def main(root_dir,
+         EOS_token,
     hidden_size = 128,
     name = "WikiHow",
     max_length = 50,
@@ -159,6 +242,7 @@ def main(root_dir,
     print_every = 10,
     plot_every = 10,
     save_every = 10,
+    print_examples_every=5,
     ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
@@ -166,8 +250,8 @@ def main(root_dir,
     # Random seed for reproducibility
     random.seed(5719)
     np.random.seed(5719)
-    #torch.manual_seed(5719)
-    #torch.use_deterministic_algorithms(True)
+    torch.manual_seed(5719)
+    torch.use_deterministic_algorithms(True)
     
     # Get directories
     dataset_dir = os.path.join(root_dir, 'data', name)
@@ -213,11 +297,13 @@ def main(root_dir,
     # Initialize the model
     encoder = EncoderRNN(num_words_text, hidden_size).to(device)
     decoder = AttnDecoderRNN(hidden_size, num_words_summary, max_length).to(device)
+    criterion = nn.NLLLoss(ignore_index=0)
 
     # Train the model
-    train(train_dataloader, val_dataloader, encoder, decoder, save_dir, figures_dir,
+    train(train_dataloader, val_dataloader, encoder, decoder, criterion,
+          feature_tokenizer.index_word, EOS_token, save_dir, figures_dir,
           learning_rate=lr, weight_decay=weight_decay, n_epochs=n_epochs,
-          print_every=print_every, plot_every=plot_every, save_every=save_every)
+          print_every=print_every, plot_every=plot_every, save_every=save_every, print_examples_every=print_examples_every)
     
     # Load the best model
     checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
@@ -225,8 +311,27 @@ def main(root_dir,
     decoder.load_state_dict(checkpoint['de'])
     
     # Test the model
-    test_loss = evaluate(test_dataloader, encoder, decoder, criterion)
+    test_loss = evaluate_loss(test_dataloader, encoder, decoder, criterion)
     print('Test loss: {:.4f}'.format(test_loss))
+    
+    # Evaluate the model
+    metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index_word, EOS_token)
+    print('BLEU score: {:.4f}'.format(metrics['bleu']))
+    print('ROUGE-L score: {:.4f}'.format(metrics['Rouge-L-F']))
+    print('ROUGE-S score: {:.4f}'.format(metrics['Rouge-S-F']))
+    print('ROUGE-2 score: {:.4f}'.format(metrics['Rouge-2-F']))
+    print('-----------------------------------')
+    # Get a random sample from the test set
+    index = random.randint(0, len(test_dataloader) - 1)
+    for i, data in enumerate(test_dataloader):
+        if i == index:
+            input_tensor, target_tensor = data
+            break
+    decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, feature_tokenizer.index_word, EOS_token)
+    print('Input: {}'.format(decode_data(input_tensor, feature_tokenizer.index_word, EOS_token)))
+    print('Target: {}'.format(decode_data(target_tensor, feature_tokenizer.index_word, EOS_token)))
+    print('Predicted: {}'.format(decoded_words))
+    print('-----------------------------------')
 
 if __name__ == "__main__":
     # Argparse command line arguments
