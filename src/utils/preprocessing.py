@@ -46,7 +46,7 @@ def save_data(df, output_dir, filename):
     output_path = os.path.join(output_dir, f"{filename}.csv")
     df.to_csv(output_path, index=False)
 
-def preprocessing_pipeline(df, stopwords, output_dir, filename, start_token='<s> ', end_token=' </s>'):
+def preprocessing_pipeline(df, stopwords, output_dir, filename, start_token='SOS ', end_token=' EOS'):
     # Select relevant columns
     if filename == "wikihow_data":
         df = df[['headline', 'text']]

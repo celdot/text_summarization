@@ -64,6 +64,9 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
         encoder_outputs, encoder_hidden = encoder(input_tensor)
         decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
 
+        print("Predicted:", decoder_outputs[0, :10].argmax(dim=-1).tolist())
+        print("Target:", target_tensor[0, :10].tolist())
+
         loss = criterion(
             decoder_outputs.view(-1, decoder_outputs.size(-1)),
             target_tensor.view(-1)
@@ -93,7 +96,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder,
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
-    criterion = nn.NLLLoss()
+    criterion = nn.NLLLoss(ignore_index=0)
 
     # Training loop
     print("Training...")
@@ -109,19 +112,20 @@ def train(train_dataloader, val_dataloader, encoder, decoder,
 
         # Print progress
         if epoch % print_every == 0:
-            print_train_loss_total = print_loss_total / print_every
+            print_train_loss_total = print_train_loss_total / print_every
             print_val_loss_total = print_val_loss_total / print_every
-            print_loss_total = 0
             print('epoch: {}; Percent complete: {:.1f}%; Average training loss: {:.4f}; Average validation loss: {:.4f}.'.format(
                     epoch, epoch / n_epochs * 100, print_train_loss_total, print_val_loss_total))
+            print_train_loss_total = 0
+            print_val_loss_total = 0
 
         # Plot loss progress
         if epoch % plot_every == 0:
             plot_loss_avg = plot_train_loss_total / plot_every
             plot_train_losses.append(plot_loss_avg)
-            plot_train_loss_total = 0
             plot_val_loss_avg = plot_val_loss_total / plot_every
             plot_val_losses.append(plot_val_loss_avg)
+            plot_train_loss_total = 0
             plot_val_loss_total = 0
             
         # Save checkpoint
@@ -262,7 +266,7 @@ if __name__ == "__main__":
          lr=lr,
          weight_decay=weight_decay,
          batch_size = batch_size,
-         num_workers = num_workers,
+         num_workers = num_workers, 
          n_epochs=n_epochs,
          print_every=print_every,
          plot_every=plot_every,

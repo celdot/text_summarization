@@ -27,7 +27,7 @@ class DecoderRNN(nn.Module):
     def __init__(self, hidden_size, output_size):
         super(DecoderRNN, self).__init__()
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True, bidirectional=True)
         self.out = nn.Linear(hidden_size, output_size)
 
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
@@ -83,7 +83,7 @@ class AttnDecoderRNN(nn.Module):
         # Define layers
         self.embedding = nn.Embedding(output_size, hidden_size)
         self.attention = Attention(hidden_size)
-        self.gru = nn.GRU(2 * hidden_size, hidden_size, batch_first=True)
+        self.gru = nn.GRU(2 * hidden_size, hidden_size, batch_first=True, bidirectional=True)
         self.out = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(dropout_p)
         
