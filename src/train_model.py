@@ -7,7 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from ignite.metrics import Rouge
-from torchtext.data.metrics import bleu_score
+from torcheval.metrics.functional.text import bleu
 from tqdm import tqdm
 
 from utils.models import AttnDecoderRNN, EncoderRNN

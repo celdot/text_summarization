@@ -5,4 +5,5 @@ nltk
 torch
 tensorflow
 scikit-learn
-ignite
+pytorch-ignite
+torcheval
