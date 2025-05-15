@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from tqdm import tqdm
 
 from utils.models import AttnDecoderRNN, EncoderRNN
 from utils.processing import processing_pipeline
@@ -54,7 +55,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
           decoder_optimizer, criterion):
 
     total_loss = 0
-    for data in dataloader:
+    for data in tqdm(dataloader):
         input_tensor, target_tensor = data
 
         encoder_optimizer.zero_grad()
@@ -76,7 +77,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
     return total_loss / len(dataloader)
 
-def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
+def train(train_dataloader, val_dataloader, encoder, decoder,
           save_directory, figures_dir,
           n_epochs= 50, learning_rate=0.001, weight_decay=1e-5,
           print_every=100, plot_every=100, save_every=100):
@@ -92,6 +93,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    criterion = nn.NLLLoss()
 
     # Training loop
     print("Training...")
@@ -99,7 +101,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
         training_loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
         print_train_loss_total += training_loss
         plot_train_loss_total += training_loss
-        
+
         # Evaluate on validation set
         val_loss = evaluate(val_dataloader, encoder, decoder, criterion)
         print_val_loss_total += val_loss
@@ -171,8 +173,6 @@ def main(root_dir,
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(figures_dir, exist_ok=True)
     
-    criterion = nn.NLLLoss()
-    
     # Load the dataset
     X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"))
     X_val = torch.load(os.path.join(dataset_dir, "x_val.pt"))
@@ -212,7 +212,7 @@ def main(root_dir,
 
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, save_dir, figures_dir,
-          criterion, learning_rate=lr, weight_decay=weight_decay, n_epochs=n_epochs,
+          learning_rate=lr, weight_decay=weight_decay, n_epochs=n_epochs,
           print_every=print_every, plot_every=plot_every, save_every=save_every)
     
     # Load the best model
@@ -262,7 +262,7 @@ if __name__ == "__main__":
          lr=lr,
          weight_decay=weight_decay,
          batch_size = batch_size,
-         num_workers = num_workers, 
+         num_workers = num_workers,
          n_epochs=n_epochs,
          print_every=print_every,
          plot_every=plot_every,

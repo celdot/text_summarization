@@ -124,7 +124,7 @@ def save_as_tensor(dataset_dir, data, filename):
     if os.path.exists(os.path.join(dataset_dir, filename)):
         print(f"{filename} already exists. Skipping.")
         return
-    data = torch.from_numpy(data).float().cuda(0)
+    data = torch.from_numpy(data).long().to(device)
     torch.save(data, os.path.join(dataset_dir, filename))
 
 def processing_pipeline(dataset_dir, name, max_features = 15000, load_tokenizer = False):

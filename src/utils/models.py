@@ -107,20 +107,24 @@ class AttnDecoderRNN(nn.Module):
         decoder_outputs = []
         attentions = []
 
-        for i in range(self.max_length):
+        if target_tensor is not None:
+            target_length = min(self.max_length, target_tensor.size(1))
+        else:
+            target_length = self.max_length
+        
+        for i in range(target_length):
             decoder_output, decoder_hidden, attn_weights = self.forward_step(
                 decoder_input, decoder_hidden, encoder_outputs
             )
             decoder_outputs.append(decoder_output)
             attentions.append(attn_weights)
-
+        
             if target_tensor is not None:
-                # Teacher forcing: Feed the target as the next input
-                decoder_input = target_tensor[:, i].unsqueeze(1) # Teacher forcing
+                decoder_input = target_tensor[:, i].unsqueeze(1)
             else:
-                # Without teacher forcing: use its own predictions as the next input
                 _, topi = decoder_output.topk(1)
-                decoder_input = topi.squeeze(-1).detach()  # detach from history as input
+                decoder_input = topi.squeeze(-1).detach()
+
 
         decoder_outputs = torch.cat(decoder_outputs, dim=1)
         decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
