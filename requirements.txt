@@ -4,5 +4,5 @@ matplotlib
 nltk
 tensorflow
 scikit-learn
-# pytorch-ignite
-# torcheval
+pytorch-ignite
+torcheval
