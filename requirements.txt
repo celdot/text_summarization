@@ -2,8 +2,7 @@ numpy
 pandas
 matplotlib
 nltk
-torch
 tensorflow
 scikit-learn
-pytorch-ignite
-torcheval
+# pytorch-ignite
+# torcheval
