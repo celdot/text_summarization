@@ -15,19 +15,24 @@ class EncoderRNN(nn.Module):
         self.hidden_size = hidden_size
 
         self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True, bidirectional=True)
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, input):
         embedded = self.dropout(self.embedding(input))
-        output, hidden = self.gru(embedded)
+        output, hidden = self.gru(embedded)  # hidden: (2, B, H)
+
+        # Combine the two directions
+        hidden = hidden[0:hidden.size(0):2] + hidden[1:hidden.size(0):2]  # (1, B, H)
+
         return output, hidden
-    
+
+
 class DecoderRNN(nn.Module):
     def __init__(self, hidden_size, output_size):
         super(DecoderRNN, self).__init__()
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True, bidirectional=True)
+        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
         self.out = nn.Linear(hidden_size, output_size)
 
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
@@ -58,76 +63,81 @@ class DecoderRNN(nn.Module):
         output, hidden = self.gru(output, hidden)
         output = self.out(output)
         return output, hidden
-    
-class Attention(nn.Module):
-    def __init__(self, hidden_size):
-        super(Attention, self).__init__()
-        self.Wa = nn.Linear(hidden_size, hidden_size)
-        self.Ua = nn.Linear(hidden_size, hidden_size)
-        self.Va = nn.Linear(hidden_size, 1)
 
-    def forward(self, query, keys):
-        scores = self.Va(torch.tanh(self.Wa(query) + self.Ua(keys)))
-        scores = scores.squeeze(2).unsqueeze(1)
+class DotAttention(nn.Module):
+    def __init__(self):
+        super().__init__()
 
-        weights = F.softmax(scores, dim=-1)
-        context = torch.bmm(weights, keys)
+    def forward(self, encoder_hidden_states, decoder_hidden_state):
+        # encoder_hidden_states: (B, T, H)
+        # decoder_hidden_state:  (B, H)
 
-        return context, weights
+        # Compute attention scores
+        attention_weights = torch.bmm(encoder_hidden_states, decoder_hidden_state.unsqueeze(2))  # (B, T, 1)
+        attention_weights = F.softmax(attention_weights.squeeze(2), dim=1)  # (B, T)
+
+        # Compute context vector
+        context = torch.bmm(encoder_hidden_states.transpose(1, 2), attention_weights.unsqueeze(2)).squeeze(2)  # (B, H)
+
+        # Concatenate context with decoder hidden state
+        return torch.cat((context, decoder_hidden_state), dim=1), attention_weights
 
 class AttnDecoderRNN(nn.Module):
     def __init__(self, hidden_size, output_size, max_length, dropout_p=0.1):
         super(AttnDecoderRNN, self).__init__()
-        # Define parameters
+        self.hidden_size = hidden_size
         self.max_length = max_length
-        # Define layers
+
         self.embedding = nn.Embedding(output_size, hidden_size)
-        self.attention = Attention(hidden_size)
-        self.gru = nn.GRU(2 * hidden_size, hidden_size, batch_first=True, bidirectional=True)
-        self.out = nn.Linear(hidden_size, output_size)
+        self.encoder_projection = nn.Linear(2 * hidden_size, hidden_size)
+        self.attention = DotAttention()
+
+        self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
+        self.out = nn.Linear(hidden_size * 2, output_size)  # Because context + hidden = 2*hidden_size
         self.dropout = nn.Dropout(dropout_p)
-        
-        
+
     def forward_step(self, input, hidden, encoder_outputs):
-        embedded =  self.dropout(self.embedding(input))
+        embedded = self.dropout(self.embedding(input))  # (B, 1, H)
+        decoder_hidden_state = hidden[-1]               # (B, H)
 
-        query = hidden.permute(1, 0, 2)
-        context, attn_weights = self.attention(query, encoder_outputs)
-        input_gru = torch.cat((embedded, context), dim=2)
+        # Project encoder outputs to match decoder's hidden size
+        projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
 
-        output, hidden = self.gru(input_gru, hidden)
-        output = self.out(output)
+        # Attention
+        context_combined, attn_weights = self.attention(projected_encoder_outputs, decoder_hidden_state)
 
-        return output, hidden, attn_weights
+        # Run GRU
+        output, hidden = self.gru(embedded, hidden)
+
+        # Generate output token logits
+        output = self.out(context_combined.unsqueeze(1))  # (B, 1, V)
+
+        return output, hidden, attn_weights.unsqueeze(1)
+
 
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
         batch_size = encoder_outputs.size(0)
-        decoder_input = torch.empty(batch_size, 1, dtype=torch.long, device=device).fill_(SOS_token)
+        decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device)
         decoder_hidden = encoder_hidden
+
         decoder_outputs = []
         attentions = []
 
-        if target_tensor is not None:
-            target_length = min(self.max_length, target_tensor.size(1))
-        else:
-            target_length = self.max_length
-        
+        target_length = target_tensor.size(1) if target_tensor is not None else self.max_length
+
         for i in range(target_length):
-            decoder_output, decoder_hidden, attn_weights = self.forward_step(
-                decoder_input, decoder_hidden, encoder_outputs
-            )
+            decoder_output, decoder_hidden, attn_weights = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
             decoder_outputs.append(decoder_output)
             attentions.append(attn_weights)
-        
+
             if target_tensor is not None:
                 decoder_input = target_tensor[:, i].unsqueeze(1)
             else:
-                _, topi = decoder_output.topk(1)
-                decoder_input = topi.squeeze(-1).detach()
+                topi = decoder_output.argmax(dim=-1)
+                decoder_input = topi.detach()
 
-
-        decoder_outputs = torch.cat(decoder_outputs, dim=1)
+        decoder_outputs = torch.cat(decoder_outputs, dim=1)  # (B, T, V)
         decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
-        attentions = torch.cat(attentions, dim=1)
+        attention_scores = torch.cat(attentions, dim=1)  # (B, T, S)
 
-        return decoder_outputs, decoder_hidden, attentions
+        return decoder_outputs, decoder_hidden, attention_scores

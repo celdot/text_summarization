@@ -14,29 +14,30 @@ from torch.utils.data import DataLoader, RandomSampler, TensorDataset
 
 def enforce_special_tokens(tokenizer, sos_token="SOS", eos_token="EOS"):
     """
-    Ensure that SOS and EOS tokens are set to index 1 and 2 in both word_index and index_word.
-    Moves any existing tokens that occupy 1 and 2 to new indices.
+    Force SOS and EOS tokens to have fixed indices in tokenizer.
+    This version avoids overwriting or duplicating existing tokens.
     """
-    # Save any existing tokens at positions 1 and 2
-    old_1 = tokenizer.index_word.get(1)
-    old_2 = tokenizer.index_word.get(2)
+    # Remove if they exist
+    if sos_token in tokenizer.word_index:
+        del tokenizer.word_index[sos_token]
+    if eos_token in tokenizer.word_index:
+        del tokenizer.word_index[eos_token]
 
-    # Assign SOS and EOS
-    tokenizer.word_index[sos_token] = 1
-    tokenizer.word_index[eos_token] = 2
-    tokenizer.index_word[1] = sos_token
-    tokenizer.index_word[2] = eos_token
+    # Shift existing indices to avoid collision
+    index_shift = 2  # reserve 1 and 2 for SOS and EOS
+    updated_word_index = {}
+    for word, idx in tokenizer.word_index.items():
+        updated_word_index[word] = idx + index_shift
 
-    # If something was overwritten, move it to new indices
-    max_index = max(tokenizer.word_index.values())
-    if old_1 and old_1 != sos_token:
-        max_index += 1
-        tokenizer.word_index[old_1] = max_index
-        tokenizer.index_word[max_index] = old_1
-    if old_2 and old_2 != eos_token:
-        max_index += 1
-        tokenizer.word_index[old_2] = max_index
-        tokenizer.index_word[max_index] = old_2
+    # Add special tokens
+    updated_word_index[sos_token] = 1
+    updated_word_index[eos_token] = 2
+
+    # Invert to index_word
+    updated_index_word = {idx: word for word, idx in updated_word_index.items()}
+
+    tokenizer.word_index = updated_word_index
+    tokenizer.index_word = updated_index_word
 
     return tokenizer
 
@@ -53,7 +54,7 @@ def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, m
         with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as f:
             feature_tokenizer = pickle.load(f)
     else:
-        feature_tokenizer = Tokenizer(num_words=max_features, oov_token="<unk>")
+        feature_tokenizer = Tokenizer(num_words=max_features, oov_token="<unk>", filters='', lower=False)
         feature_tokenizer.fit_on_texts(X_train)
         print("SOS index:", feature_tokenizer.word_index.get("SOS"))
         print("EOS index:", feature_tokenizer.word_index.get("EOS"))
@@ -73,7 +74,7 @@ def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, m
         with open(os.path.join(dataset_dir, 'label_tokenizer.pickle'), 'rb') as f:
             label_tokenizer = pickle.load(f)
     else:
-        label_tokenizer = Tokenizer(num_words=max_features, oov_token="<unk>")
+        label_tokenizer = Tokenizer(num_words=max_features, oov_token="<unk>", filters='', lower=False)
         label_tokenizer.fit_on_texts(y_train)
         print("SOS index:", label_tokenizer.word_index.get("SOS"))
         print("EOS index:", label_tokenizer.word_index.get("EOS"))
@@ -115,7 +116,7 @@ def delete_padding_rows(X_train, X_val, X_test, y_train, y_val, y_test):
     mask_train = ~np.all(X_train == 0, axis=1)
     X_train = X_train[mask_train]
     y_train = y_train[mask_train]
-    
+
     # For validation set
     mask_val = ~np.all(X_val == 0, axis=1)
     X_val = X_val[mask_val]
@@ -159,10 +160,10 @@ def processing_pipeline(dataset_dir, name, max_features = 15000, load_tokenizer 
 
     # Tokenize the data
     X_train, X_val, X_test, y_train, y_val, y_test, feature_tokenizer, label_tokenizer = tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, max_features, load_tokenizer)
-    
+
     # Add 1 to the vocab size to account for padding
-    num_words_text = len(feature_tokenizer.word_index) + 1 # because we are using 1-based indexing (0 is reserved for padding)
-    num_words_summary = len(label_tokenizer.word_index) + 1
+    num_words_text = max(feature_tokenizer.word_index.values()) + 1
+    num_words_summary = max(label_tokenizer.word_index.values()) + 1
 
     # Add padding to the sequences
     X_train, X_val, X_test, y_train, y_val, y_test = add_padding(X_train, X_val, X_test, y_train, y_val, y_test,
@@ -176,14 +177,38 @@ def processing_pipeline(dataset_dir, name, max_features = 15000, load_tokenizer 
                                                                         y_train,
                                                                         y_val,
                                                                         y_test)
-    
+
+    print("Max label index in y_train:", max(max(seq) for seq in y_train))
+    print("num_words_summary:", num_words_summary)
+    print("num_words_text:", num_words_text)
+
+    max_text_index_train = X_train.max()
+    max_label_index_train = y_train.max()
+    print("Max text index:", max_text_index_train)
+    print("Max label index:", max_label_index_train)
+    assert max_text_index_train < num_words_text, "Token index in text exceeds vocab size!"
+    assert max_label_index_train < num_words_summary, "Token index in summary exceeds vocab size!"
+
+    max_text_index_val = X_val.max()
+    max_label_index_val = y_val.max()
+    print("Max text index in validation set:", max_text_index_val)
+    print("Max label index in validation set:", max_label_index_val)
+    assert max_text_index_val < num_words_text, "Token index in text validation set exceeds vocab size!"
+    assert max_label_index_val < num_words_summary, "Token index in summary validation set exceeds vocab size!"
+    max_text_index_test = X_test.max()
+    max_label_index_test = y_test.max()
+    print("Max text index in test set:", max_text_index_test)
+    print("Max label index in test set:", max_label_index_test)
+    assert max_text_index_test < num_words_text, "Token index in text test set exceeds vocab size!"
+    assert max_label_index_test < num_words_summary, "Token index in summary test set exceeds vocab size!"
+
     print("index of start and end token", feature_tokenizer.word_index["SOS"], feature_tokenizer.word_index["EOS"])
-    
+
     save_as_tensor(dataset_dir, X_train, "x_train.pt")
     save_as_tensor(dataset_dir, X_val, "x_val.pt")
     save_as_tensor(dataset_dir, X_test, "x_test.pt")
     save_as_tensor(dataset_dir, y_train, "y_train.pt")
     save_as_tensor(dataset_dir, y_val, "y_val.pt")
     save_as_tensor(dataset_dir, y_test, "y_test.pt")
-    
+
     return num_words_text, num_words_summary

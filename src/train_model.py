@@ -1,4 +1,3 @@
-import os
 import random
 
 import matplotlib.pyplot as plt
@@ -35,7 +34,7 @@ def plot_losses(figures_dir, train_losses, val_losses):
     plt.legend()
     plt.savefig(os.path.join(figures_dir, 'losses.png'))
     plt.close(fig)
-    
+
 def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
     with torch.no_grad():
@@ -44,7 +43,7 @@ def evaluate_loss(dataloader, encoder, decoder, criterion):
 
             encoder_outputs, encoder_hidden = encoder(input_tensor)
             decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
-            
+
             loss = criterion(
             decoder_outputs.view(-1, decoder_outputs.size(-1)),
             target_tensor.view(-1)
@@ -63,7 +62,7 @@ def decode_data(text_ids, index2word, EOS_token):
             decoded_words.append('<EOS>')
             break
         decoded_words.append(index2word[idx.item()])
-    
+
     return decoded_words
 
 def compute_summary(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token):
@@ -121,8 +120,11 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
           decoder_optimizer, criterion):
 
+    print_every_batch = 100
+    batch_count = 0
     total_loss = 0
     for data in tqdm(dataloader):
+        batch_count += 1
         input_tensor, target_tensor = data
 
         encoder_optimizer.zero_grad()
@@ -141,6 +143,9 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
         decoder_optimizer.step()
 
         total_loss += loss.item()
+
+        if batch_count % print_every_batch == 0:
+          print("current loss", total_loss/batch_count)
 
     return total_loss / len(dataloader)
 
@@ -171,7 +176,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
         # Evaluate on validation set
         val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
         print_val_loss_total += val_loss
-        plot_val_loss_total += val_loss 
+        plot_val_loss_total += val_loss
 
         # Print progress
         if epoch % print_every == 0:
@@ -209,7 +214,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             plot_val_losses.append(plot_val_loss_avg)
             plot_train_loss_total = 0
             plot_val_loss_total = 0
-            
+
         # Save checkpoint
         if (epoch % save_every == 0):
             torch.save({
@@ -217,7 +222,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 'en': encoder.state_dict(),
                 'de': decoder.state_dict(),
             }, os.path.join(save_directory, '{}_checkpoint.tar'.format(epoch)))
-            
+
         # Save the best model
         if (epoch == 1) or (val_loss < best_val_loss):
             best_val_loss = val_loss
@@ -228,7 +233,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             }, os.path.join(save_directory, 'best_checkpoint.tar'))
 
     plot_losses(figures_dir, plot_train_losses, plot_val_losses)
-    
+
 def main(root_dir,
          EOS_token,
     hidden_size = 128,
@@ -246,21 +251,21 @@ def main(root_dir,
     ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
-    
+
     # Random seed for reproducibility
     random.seed(5719)
     np.random.seed(5719)
     torch.manual_seed(5719)
-    torch.use_deterministic_algorithms(True)
-    
+    torch.use_deterministic_algorithms(False)
+
     # Get directories
     dataset_dir = os.path.join(root_dir, 'data', name)
     save_dir = os.path.join(root_dir, 'checkpoints', name)
     figures_dir = os.path.join(root_dir, 'figures', name)
-    
+
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(figures_dir, exist_ok=True)
-    
+
     # Load the dataset
     X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"))
     X_val = torch.load(os.path.join(dataset_dir, "x_val.pt"))
@@ -284,13 +289,13 @@ def main(root_dir,
         batch_size=batch_size,
         shuffle=True,
     )
-    
+
     # Load the vocabulary
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
             feature_tokenizer = pickle.load(handle)
     with open(os.path.join(dataset_dir, 'label_tokenizer.pickle'), 'rb') as handle:
             label_tokenizer = pickle.load(handle)
-            
+
     num_words_text = len(feature_tokenizer.word_index) + 1 # because we are using 1-based indexing (0 is reserved for padding)
     num_words_summary = len(label_tokenizer.word_index) + 1
 
@@ -304,16 +309,16 @@ def main(root_dir,
           feature_tokenizer.index_word, EOS_token, save_dir, figures_dir,
           learning_rate=lr, weight_decay=weight_decay, n_epochs=n_epochs,
           print_every=print_every, plot_every=plot_every, save_every=save_every, print_examples_every=print_examples_every)
-    
+
     # Load the best model
     checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
     encoder.load_state_dict(checkpoint['en'])
     decoder.load_state_dict(checkpoint['de'])
-    
+
     # Test the model
     test_loss = evaluate_loss(test_dataloader, encoder, decoder, criterion)
     print('Test loss: {:.4f}'.format(test_loss))
-    
+
     # Evaluate the model
     metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index_word, EOS_token)
     print('BLEU score: {:.4f}'.format(metrics['bleu']))
