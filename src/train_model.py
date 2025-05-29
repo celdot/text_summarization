@@ -311,6 +311,7 @@ def main(root_dir,
 
     num_words_text = max(feature_tokenizer.word_index.values()) + 1
     EOS_token = feature_tokenizer.word_index["EOS"]
+    print("words in text", num_words_text)
 
     # Initialize the model
     encoder = EncoderRNN(num_words_text, hidden_size).to(device)
