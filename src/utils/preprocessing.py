@@ -62,13 +62,13 @@ def preprocessing_pipeline(df, stopwords, output_dir, filename, start_token='SOS
     df = preprocess_data(df, stopwords, 'text', start_token, end_token)
     
     # Keep only the rows where the length of the text and summary are below the 95th percentile
-    length_summary_95 = get_length_at_percentile(df, 0.95, 'length_summary')
-    length_text_95 = get_length_at_percentile(df, 0.95, 'length_text')
+    length_summary_95 = get_length_at_percentile(df, 0.99, 'length_summary')
+    length_text_95 = get_length_at_percentile(df, 0.99, 'length_text')
     df = df[(df['length_summary'] <= length_summary_95) & (df['length_text'] <= length_text_95)]
     
     save_data(df, output_dir, filename)
-    
-    return df, length_summary_95, length_text_95
+
+    del df
 
 def get_data_distribution(df, figures_dir, dataset_name):
     """
