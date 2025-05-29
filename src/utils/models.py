@@ -114,7 +114,6 @@ class AttnDecoderRNN(nn.Module):
 
         return output, hidden, attn_weights.unsqueeze(1)
 
-
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
         batch_size = encoder_outputs.size(0)
         decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device)
