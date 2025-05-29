@@ -299,8 +299,6 @@ def main(root_dir,
 
     num_words_text = max(feature_tokenizer.word2index.values()) + 1
     EOS_token = feature_tokenizer.word2index.get("EOS", 2)
-    print(EOS_token)
-    print(feature_tokenizer.word2index.get("SOS"))
 
     # Initialize the model
     print("Initialize the model")
