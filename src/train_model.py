@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from ignite.metrics import Rouge
-from torcheval.metrics.functional.text import bleu
+from torcheval.metrics.functional import bleu_score
 from tqdm import tqdm
 
 from utils.models import AttnDecoderRNN, EncoderRNN
@@ -37,8 +37,10 @@ def plot_losses(figures_dir, train_losses, val_losses):
 
 def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
+    batch_count = 0
     with torch.no_grad():
         for data in dataloader:
+            batch_count += 1
             input_tensor, target_tensor = data
 
             encoder_outputs, encoder_hidden = encoder(input_tensor)
@@ -50,18 +52,27 @@ def evaluate_loss(dataloader, encoder, decoder, criterion):
             )
             total_loss += loss.item()
 
+            if batch_count == 50:
+                return total_loss / batch_count
+
     return total_loss / len(dataloader)
 
 def decode_data(text_ids, index2word, EOS_token):
     """
     Converts the text ids to words using the index2word mapping.
     """
+    if text_ids.dim() > 1:
+        text_ids = text_ids.view(-1)  # Flatten to 1D
+
     decoded_words = []
     for idx in text_ids:
-        if idx.item() == EOS_token:
-            decoded_words.append('<EOS>')
+        # Ensure idx is a scalar
+        if isinstance(idx, torch.Tensor):
+            idx = idx.item()
+        if idx == EOS_token:
+            decoded_words.append('EOS')
             break
-        decoded_words.append(index2word[idx.item()])
+        decoded_words.append(index2word.get(idx, '<UNK>'))
 
     return decoded_words
 
@@ -88,11 +99,11 @@ def compute_metrics(predictions, targets, n):
     """
     Computes the BLEU score and ROUGE score for the predictions and targets.
     """
-    rouge_metrics = Rouge(variants=["L", "S", n], multiref="best")
+    rouge_metrics = Rouge(variants=["L", n], multiref="best")
 
     rouge_metrics.update(([predictions], [targets]))
     metrics = rouge_metrics.compute()
-    metrics["bleu"] = bleu_score(predictions, targets, max_n=n, weights=[1/n]*n)
+    metrics["bleu"] = bleu_score(predictions, targets, n_gram=n)
 
     return metrics
 
@@ -106,19 +117,27 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
     predictions = []
     targets = []
 
+    batch_count = 0
     with torch.no_grad():
         for data in dataloader:
+            batch_count += 1
             input_tensor, target_tensor = data
 
             decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token)
 
-            predictions.append(decoded_words)
-            targets.append(target_words)
+            predictions.append(" ".join(decoded_words))
+            targets.append(" ".join(target_words))
+
+            if batch_count == 50:
+                break
 
     return compute_metrics(predictions, targets, n=2)
 
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
           decoder_optimizer, criterion):
+
+    encoder.train()
+    decoder.train()
 
     print_every_batch = 100
     batch_count = 0
@@ -147,6 +166,9 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
         if batch_count % print_every_batch == 0:
           print("current loss", total_loss/batch_count)
 
+        if batch_count == 50:
+            return total_loss / batch_count
+
     return total_loss / len(dataloader)
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
@@ -162,6 +184,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     plot_train_loss_total = 0  # Reset every plot_every
     print_val_loss_total = 0  # Reset every print_every
     plot_val_loss_total = 0  # Reset every plot_every
+    best_val_loss = float('inf')
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -178,18 +201,27 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
         print_val_loss_total += val_loss
         plot_val_loss_total += val_loss
 
+        # Save the best model
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            torch.save({
+                'epoch': epoch,
+                'en': encoder.state_dict(),
+                'de': decoder.state_dict(),
+            }, os.path.join(save_directory, 'best_checkpoint.tar'))
+
         # Print progress
         if epoch % print_every == 0:
-                # Compute metrics for validation set
-            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
             print_train_loss_total = print_train_loss_total / print_every
             print_val_loss_total = print_val_loss_total / print_every
             print('epoch: {}; Average training loss: {:.4f}; Average validation loss: {:.4f}.'.format(
                     epoch, epoch / n_epochs * 100, print_train_loss_total, print_val_loss_total))
+
         if epoch % print_examples_every == 0:
+            # Compute metrics for validation set
+            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
             print('BLEU score: {:.4f}'.format(val_metrics['bleu']))
             print('ROUGE-L score: {:.4f}'.format(val_metrics['Rouge-L-F']))
-            print('ROUGE-S score: {:.4f}'.format(val_metrics['Rouge-S-F']))
             print('ROUGE-2 score: {:.4f}'.format(val_metrics['Rouge-2-F']))
             print('-----------------------------------')
             print_train_loss_total = 0
@@ -201,7 +233,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                     input_tensor, target_tensor = data
                     break
             decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, index2words, EOS_token)
-            print('Input: {}'.format(decode_data(input_tensor, index2words, EOS_token)))
+            print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index_word, EOS_token)))
             print('Target: {}'.format(target_words))
             print('Predicted: {}'.format(decoded_words))
             print('-----------------------------------')
@@ -215,27 +247,10 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             plot_train_loss_total = 0
             plot_val_loss_total = 0
 
-        # Save checkpoint
-        if (epoch % save_every == 0):
-            torch.save({
-                'epoch': epoch,
-                'en': encoder.state_dict(),
-                'de': decoder.state_dict(),
-            }, os.path.join(save_directory, '{}_checkpoint.tar'.format(epoch)))
-
-        # Save the best model
-        if (epoch == 1) or (val_loss < best_val_loss):
-            best_val_loss = val_loss
-            torch.save({
-                'epoch': epoch,
-                'en': encoder.state_dict(),
-                'de': decoder.state_dict(),
-            }, os.path.join(save_directory, 'best_checkpoint.tar'))
-
     plot_losses(figures_dir, plot_train_losses, plot_val_losses)
 
 def main(root_dir,
-         EOS_token,
+    load_checkpoint = False,     
     hidden_size = 128,
     name = "WikiHow",
     max_length = 50,
@@ -272,7 +287,7 @@ def main(root_dir,
     X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
     y_train = torch.load(os.path.join(dataset_dir, "y_train.pt"))
     y_val = torch.load(os.path.join(dataset_dir, "y_val.pt"))
-    y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))
+    y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))    
 
     train_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(X_train, y_train),
@@ -293,16 +308,20 @@ def main(root_dir,
     # Load the vocabulary
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
             feature_tokenizer = pickle.load(handle)
-    with open(os.path.join(dataset_dir, 'label_tokenizer.pickle'), 'rb') as handle:
-            label_tokenizer = pickle.load(handle)
 
-    num_words_text = len(feature_tokenizer.word_index) + 1 # because we are using 1-based indexing (0 is reserved for padding)
-    num_words_summary = len(label_tokenizer.word_index) + 1
+    num_words_text = max(feature_tokenizer.word_index.values()) + 1
+    EOS_token = feature_tokenizer.word_index["EOS"]
 
     # Initialize the model
     encoder = EncoderRNN(num_words_text, hidden_size).to(device)
-    decoder = AttnDecoderRNN(hidden_size, num_words_summary, max_length).to(device)
+    decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
     criterion = nn.NLLLoss(ignore_index=0)
+
+    if load_checkpoint:
+      # Load the best model
+      checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
+      encoder.load_state_dict(checkpoint['encoder'])
+      decoder.load_state_dict(checkpoint['decoder'])
 
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
@@ -323,7 +342,6 @@ def main(root_dir,
     metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index_word, EOS_token)
     print('BLEU score: {:.4f}'.format(metrics['bleu']))
     print('ROUGE-L score: {:.4f}'.format(metrics['Rouge-L-F']))
-    print('ROUGE-S score: {:.4f}'.format(metrics['Rouge-S-F']))
     print('ROUGE-2 score: {:.4f}'.format(metrics['Rouge-2-F']))
     print('-----------------------------------')
     # Get a random sample from the test set
@@ -333,8 +351,8 @@ def main(root_dir,
             input_tensor, target_tensor = data
             break
     decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, feature_tokenizer.index_word, EOS_token)
-    print('Input: {}'.format(decode_data(input_tensor, feature_tokenizer.index_word, EOS_token)))
-    print('Target: {}'.format(decode_data(target_tensor, feature_tokenizer.index_word, EOS_token)))
+    print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index_word, EOS_token)))
+    print('Target: {}'.format(target_words))
     print('Predicted: {}'.format(decoded_words))
     print('-----------------------------------')
 
@@ -353,6 +371,7 @@ if __name__ == "__main__":
     parser.add_argument('--print_every', type=int, default=10, help='Print every n epochs')
     parser.add_argument('--plot_every', type=int, default=10, help='Plot every n epochs')
     parser.add_argument('--save_every', type=int, default=10, help='Save every n epochs')
+    parser.add_argument('--load_checkpoint', action='store_true', help='Load the best checkpoint if it exists')
     
     args = parser.parse_args()
     
@@ -368,8 +387,10 @@ if __name__ == "__main__":
     root_dir = args.directory
     batch_size = args.batch_size
     num_workers = args.num_workers
+    load_checkpoint = args.load_checkpoint
     
     main(root_dir = root_dir,
+         load_checkpoint=load_checkpoint,
          hidden_size=hidden_size,
          name=name,
          max_length=max_length,
