@@ -74,9 +74,9 @@ def decode_data(text_ids, index2word, EOS_token):
             break
         decoded_words.append(index2word.get(idx, '<UNK>'))
 
-    return decoded_words
+    return " ".join(decoded_words)
 
-def compute_summary(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token):
+def make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token):
     """
     Computes the summary for the given input tensor and target tensor.
     """
@@ -98,12 +98,21 @@ def compute_summary(encoder, decoder, input_tensor, target_tensor, index2word, E
 def compute_metrics(predictions, targets, n):
     """
     Computes the BLEU score and ROUGE score for the predictions and targets.
-    """
+    """    
+    metrics = {}
     rouge_metrics = Rouge(variants=["L", n], multiref="best")
-
-    rouge_metrics.update(([predictions], [targets]))
-    metrics = rouge_metrics.compute()
+    
     metrics["bleu"] = bleu_score(predictions, targets, n_gram=n)
+
+    list_predictions = []
+    list_targets = []
+    for pred in predictions:
+        list_predictions.append(pred.split())
+    for target in targets:
+        list_targets.append(target.split())
+
+    rouge_metrics.update((list_predictions,  [list_targets]))
+    metrics.update(rouge_metrics.compute())
 
     return metrics
 
@@ -123,10 +132,10 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
             batch_count += 1
             input_tensor, target_tensor = data
 
-            decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token)
+            predicted_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token)
 
-            predictions.append(" ".join(decoded_words))
-            targets.append(" ".join(target_words))
+            predictions.append(predicted_words)
+            targets.append(target_words)
 
             if batch_count == 50:
                 break
@@ -232,7 +241,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 if i == index:
                     input_tensor, target_tensor = data
                     break
-            decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, index2words, EOS_token)
+            decoded_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, index2words, EOS_token)
             print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index_word, EOS_token)))
             print('Target: {}'.format(target_words))
             print('Predicted: {}'.format(decoded_words))
@@ -311,7 +320,6 @@ def main(root_dir,
 
     num_words_text = max(feature_tokenizer.word_index.values()) + 1
     EOS_token = feature_tokenizer.word_index["EOS"]
-    print("words in text", num_words_text)
 
     # Initialize the model
     encoder = EncoderRNN(num_words_text, hidden_size).to(device)
@@ -351,7 +359,7 @@ def main(root_dir,
         if i == index:
             input_tensor, target_tensor = data
             break
-    decoded_words, target_words = compute_summary(encoder, decoder, input_tensor, target_tensor, feature_tokenizer.index_word, EOS_token)
+    decoded_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, feature_tokenizer.index_word, EOS_token)
     print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index_word, EOS_token)))
     print('Target: {}'.format(target_words))
     print('Predicted: {}'.format(decoded_words))
