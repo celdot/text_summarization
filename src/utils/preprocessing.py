@@ -68,7 +68,7 @@ def preprocessing_pipeline(df, stopwords, output_dir, filename, start_token='SOS
     
     save_data(df, output_dir, filename)
     
-    return df, length_summary_95, length_text_95
+    return df
 
 def get_data_distribution(df, figures_dir, dataset_name):
     """
