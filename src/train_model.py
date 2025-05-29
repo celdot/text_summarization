@@ -87,14 +87,14 @@ def make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, 
 
     return decoded_words, target_words
 
-def compute_metrics(predictions, targets, n):
+def compute_metrics(predictions, targets, n1, n2=1):
     """
-    Computes the BLEU score and ROUGE score for the predictions and targets.
+    Computes the BLEU score for n1-grams and ROUGE-n1, ROGUE-n2 and ROGUE-L score for the predictions and targets.
     """    
     metrics = {}
-    rouge_metrics = Rouge(variants=["L", n], multiref="best")
+    rouge_metrics = Rouge(variants=["L", n1, n2], multiref="best")
     
-    metrics["bleu"] = bleu_score(predictions, targets, n_gram=n)
+    metrics["bleu"] = bleu_score(predictions, targets, n_gram=n1)
 
     list_predictions = []
     list_targets = []
@@ -127,7 +127,7 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
             predictions.append(predicted_words)
             targets.append(target_words)
 
-    return compute_metrics(predictions, targets, n=2)
+    return compute_metrics(predictions, targets, n1=2, n2=1)
 
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
           decoder_optimizer, criterion):

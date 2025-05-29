@@ -72,7 +72,7 @@ def pad_sequences(sequences, maxlen):
 
 def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, load_tokenizer=False):
     """
-    Tokenizes the data using Keras Tokenizer and converts the text to sequences.
+    Tokenizes the data using custom Tokenizer and converts the text to sequences.
     Ensures SOS and EOS tokens are correctly assigned.
     """
 
