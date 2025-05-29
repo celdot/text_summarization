@@ -6,16 +6,16 @@ import pandas as pd
 import torch
 from sklearn.model_selection import train_test_split
 
-SOS_token = 0
-EOS_token = 1
+SOS_token = 1
+EOS_token = 2
 
 class Tokenizer:
     def __init__(self):
-        self.word2index = {}
-        self.word2count = {}
-        self.index2word = {0: "SOS", 1: "EOS"}
-        self.n_words = 2  # Count SOS and EOS
-        
+        self.word2index = {"PAD": 0, "SOS": 1, "EOS": 2, "UNK": 3}
+        self.word2count = {"PAD": 0, "SOS": 0, "EOS": 0, "UNK": 0}
+        self.index2word = {0: "PAD", 1: "SOS", 2: "EOS", 3: "UNK"}
+        self.n_words = 4  # Count SOS, EOS, and UNK
+
     def fit_on_texts(self, texts):
         """
         Fit the tokenizer on the provided texts.
@@ -38,29 +38,39 @@ class Tokenizer:
             
     def texts_to_sequences(self, texts):
         """
-        Convert texts to sequences of indices.
+        Convert a list of texts to sequences of indices.
         """
         sequences = []
         for text in texts:
-            sequence = [self.word2index.get(word, self.word2index.get("<unk>")) for word in text.split(' ')]
+            if text is None:
+                continue
+            sequence = [self.word2index.get(word, self.word2index.get("UNK")) for word in text.split()]
             sequences.append(sequence)
         return sequences
+
     
 def pad_sequences(sequences, maxlen):
-    """
-    Pad sequences to the same length.
-    """
     padded_sequences = []
-    for seq in sequences:
+    for i, seq in enumerate(sequences):
+        if not isinstance(seq, list):
+            print(f"Warning: Invalid sequence at index {i}: {seq}")
+            seq = []
+
+        # Ensure elements are integers
+        seq = [int(token) for token in seq]
+
+        # Pad or truncate to match maxlen
         if len(seq) < maxlen:
             padded_seq = seq + [0] * (maxlen - len(seq))
         else:
             padded_seq = seq[:maxlen]
+
         padded_sequences.append(padded_seq)
-    return np.array(padded_sequences)
 
+    # Convert to NumPy array with explicit int64 dtype
+    return np.array(padded_sequences, dtype=np.int64)
 
-def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, max_features, load_tokenizer=False):
+def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, load_tokenizer=False):
     """
     Tokenizes the data using Keras Tokenizer and converts the text to sequences.
     Ensures SOS and EOS tokens are correctly assigned.
@@ -73,6 +83,15 @@ def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, m
         feature_tokenizer = Tokenizer()
         feature_tokenizer.fit_on_texts(X_train)
         feature_tokenizer.fit_on_texts(y_train)
+        # Print the specific tokens
+        print("SOS token index:", feature_tokenizer.word2index.get("SOS", "Not found"))
+        print("EOS token index:", feature_tokenizer.word2index.get("EOS", "Not found"))
+        print("UNK token index:", feature_tokenizer.word2index.get("UNK", "Not found"))
+        print("PAD token index:", feature_tokenizer.word2index.get("PAD", "Not found"))
+        # Save the word index mapping in a txt file
+        with open(os.path.join(dataset_dir, 'word_index.txt'), 'w') as f:
+            for word, index in feature_tokenizer.word2index.items():
+                f.write(f"{word}\t{index}\n")
         with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'wb') as f:
             pickle.dump(feature_tokenizer, f, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -137,13 +156,20 @@ def save_as_tensor(dataset_dir, data, filename):
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Saving {filename}...")
+
     if os.path.exists(os.path.join(dataset_dir, filename)):
         print(f"{filename} already exists. Skipping.")
         return
+
+    print(f"{filename} dtype: {data.dtype}, shape: {data.shape}")
+
+    if data.dtype != np.int64:
+        raise TypeError(f"{filename} has invalid dtype: {data.dtype}")
+
     data = torch.from_numpy(data).long().to(device)
     torch.save(data, os.path.join(dataset_dir, filename))
 
-def processing_pipeline(dataset_dir, name, max_features = 15000, load_tokenizer = False):
+def processing_pipeline(dataset_dir, name, load_tokenizer = False):
     """
     Process the data by splitting it into train, validation, and test sets,
     tokenizing the data, and adding padding to the sequences.
@@ -161,12 +187,10 @@ def processing_pipeline(dataset_dir, name, max_features = 15000, load_tokenizer 
     del df
 
     # Tokenize the data
-    X_train, X_val, X_test, y_train, y_val, y_test = tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, max_features, load_tokenizer)
-
+    X_train, X_val, X_test, y_train, y_val, y_test = tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, load_tokenizer)
+    
     # Add padding to the sequences
-    X_train, X_val, X_test, y_train, y_val, y_test = add_padding(X_train, X_val, X_test, y_train, y_val, y_test,
-                                                                 maxlen_text,
-                                                                 maxlen_summary)
+    X_train, X_val, X_test, y_train, y_val, y_test = add_padding(X_train, X_val, X_test, y_train, y_val, y_test, maxlen_text, maxlen_summary)
 
     # Delete rows that only contain padding
     X_train, X_val, X_test, y_train, y_val, y_test = delete_padding_rows(X_train,

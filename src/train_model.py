@@ -3,21 +3,18 @@ import random
 import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 from ignite.metrics import Rouge
 from torcheval.metrics.functional import bleu_score
 from tqdm import tqdm
 
 from utils.models import AttnDecoderRNN, EncoderRNN
-from utils.processing_tensorflow import processing_pipeline
 
 plt.switch_backend('agg')
 import argparse
+import os
 import pickle
-from pathlib import Path
 
-import matplotlib.ticker as ticker
 import numpy as np
 
 
@@ -37,10 +34,8 @@ def plot_losses(figures_dir, train_losses, val_losses):
 
 def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
-    batch_count = 0
     with torch.no_grad():
         for data in dataloader:
-            batch_count += 1
             input_tensor, target_tensor = data
 
             encoder_outputs, encoder_hidden = encoder(input_tensor)
@@ -51,9 +46,6 @@ def evaluate_loss(dataloader, encoder, decoder, criterion):
             target_tensor.view(-1)
             )
             total_loss += loss.item()
-
-            if batch_count == 50:
-                return total_loss / batch_count
 
     return total_loss / len(dataloader)
 
@@ -72,7 +64,7 @@ def decode_data(text_ids, index2word, EOS_token):
         if idx == EOS_token:
             decoded_words.append('EOS')
             break
-        decoded_words.append(index2word.get(idx, '<UNK>'))
+        decoded_words.append(index2word.get(idx, 'UNK'))
 
     return " ".join(decoded_words)
 
@@ -125,20 +117,15 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
 
     predictions = []
     targets = []
-
-    batch_count = 0
+    
     with torch.no_grad():
         for data in dataloader:
-            batch_count += 1
             input_tensor, target_tensor = data
 
             predicted_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token)
 
             predictions.append(predicted_words)
             targets.append(target_words)
-
-            if batch_count == 50:
-                break
 
     return compute_metrics(predictions, targets, n=2)
 
@@ -148,11 +135,8 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
     encoder.train()
     decoder.train()
 
-    print_every_batch = 100
-    batch_count = 0
     total_loss = 0
     for data in tqdm(dataloader):
-        batch_count += 1
         input_tensor, target_tensor = data
 
         encoder_optimizer.zero_grad()
@@ -171,12 +155,6 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
         decoder_optimizer.step()
 
         total_loss += loss.item()
-
-        if batch_count % print_every_batch == 0:
-          print("current loss", total_loss/batch_count)
-
-        if batch_count == 50:
-            return total_loss / batch_count
 
     return total_loss / len(dataloader)
 
@@ -242,7 +220,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                     input_tensor, target_tensor = data
                     break
             decoded_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, index2words, EOS_token)
-            print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index_word, EOS_token)))
+            print('Input: {}'.format(decode_data(input_tensor[0], index2words, EOS_token)))
             print('Target: {}'.format(target_words))
             print('Predicted: {}'.format(decoded_words))
             print('-----------------------------------')
@@ -315,13 +293,17 @@ def main(root_dir,
     )
 
     # Load the vocabulary
+    print("Loading tokenizer")
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
             feature_tokenizer = pickle.load(handle)
 
-    num_words_text = max(feature_tokenizer.word_index.values()) + 1
-    EOS_token = feature_tokenizer.word_index["EOS"]
+    num_words_text = max(feature_tokenizer.word2index.values()) + 1
+    EOS_token = feature_tokenizer.word2index.get("EOS", 2)
+    print(EOS_token)
+    print(feature_tokenizer.word2index.get("SOS"))
 
     # Initialize the model
+    print("Initialize the model")
     encoder = EncoderRNN(num_words_text, hidden_size).to(device)
     decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
     criterion = nn.NLLLoss(ignore_index=0)
@@ -334,7 +316,7 @@ def main(root_dir,
 
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
-          feature_tokenizer.index_word, EOS_token, save_dir, figures_dir,
+          feature_tokenizer.index2word, EOS_token, save_dir, figures_dir,
           learning_rate=lr, weight_decay=weight_decay, n_epochs=n_epochs,
           print_every=print_every, plot_every=plot_every, save_every=save_every, print_examples_every=print_examples_every)
 
@@ -348,7 +330,7 @@ def main(root_dir,
     print('Test loss: {:.4f}'.format(test_loss))
 
     # Evaluate the model
-    metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index_word, EOS_token)
+    metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token)
     print('BLEU score: {:.4f}'.format(metrics['bleu']))
     print('ROUGE-L score: {:.4f}'.format(metrics['Rouge-L-F']))
     print('ROUGE-2 score: {:.4f}'.format(metrics['Rouge-2-F']))
@@ -359,8 +341,8 @@ def main(root_dir,
         if i == index:
             input_tensor, target_tensor = data
             break
-    decoded_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, feature_tokenizer.index_word, EOS_token)
-    print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index_word, EOS_token)))
+    decoded_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, feature_tokenizer.index2word, EOS_token)
+    print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index2word, EOS_token)))
     print('Target: {}'.format(target_words))
     print('Predicted: {}'.format(decoded_words))
     print('-----------------------------------')
