@@ -35,7 +35,7 @@ def plot_losses(figures_dir, train_losses, val_losses):
 def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
     with torch.no_grad():
-        for data in dataloader:
+        for data in tqdm(dataloader):
             input_tensor, target_tensor = data
 
             encoder_outputs, encoder_hidden = encoder(input_tensor)
@@ -119,7 +119,7 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
     targets = []
     
     with torch.no_grad():
-        for data in dataloader:
+        for data in tqdm(dataloader):
             input_tensor, target_tensor = data
 
             predicted_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token)
@@ -214,15 +214,18 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             print_train_loss_total = 0
             print_val_loss_total = 0
             # Get a random sample from the validation set
-            index = random.randint(0, len(val_dataloader) - 1)
-            for i, data in enumerate(val_dataloader):
-                if i == index:
+            nb_decoding_test = 5
+            count_test = 0
+            random_list = random.sample(range(len(train_dataloader)), nb_decoding_test)
+            for i, data in enumerate(train_dataloader):
+                if i in random_list:
                     input_tensor, target_tensor = data
+                    print('Input: {}'.format(decode_data(input_tensor[0], index2words, EOS_token)))
+                    print('Target: {}'.format(decode_data(target_tensor[0], index2words, EOS_token)))
+                    print('-----------------------------------')
+                    count_test += 1
+                if count_test == nb_decoding_test:
                     break
-            decoded_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, index2words, EOS_token)
-            print('Input: {}'.format(decode_data(input_tensor[0], index2words, EOS_token)))
-            print('Target: {}'.format(target_words))
-            print('Predicted: {}'.format(decoded_words))
             print('-----------------------------------')
 
         # Plot loss progress
