@@ -19,8 +19,9 @@ class EncoderRNN(nn.Module):
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, input):
-        embedded = self.dropout(self.embedding(input))
-        output, hidden = self.gru(embedded)  # hidden: (2, B, H)
+        # Input is of size (B,seq_length)
+        embedded = self.dropout(self.embedding(input)) # embedded: (B,seq_length, embedding_dim) => here embedding_dim = H
+        output, hidden = self.gru(embedded)  # hidden: (2, B, H), output (B, seq_length, 2*H)
 
         # Combine the two directions
         hidden = hidden[0:hidden.size(0):2] + hidden[1:hidden.size(0):2]  # (1, B, H)
@@ -69,7 +70,7 @@ class DotAttention(nn.Module):
         super().__init__()
 
     def forward(self, encoder_hidden_states, decoder_hidden_state):
-        # encoder_hidden_states: (B, T, H)
+        # encoder_hidden_states: (B, T, H) # with T == S from perviously and == seq_length of encoder
         # decoder_hidden_state:  (B, H)
 
         # Compute attention scores
@@ -97,6 +98,7 @@ class AttnDecoderRNN(nn.Module):
         self.dropout = nn.Dropout(dropout_p)
 
     def forward_step(self, input, hidden, encoder_outputs):
+        # encoder_output: (B, seq_length, 2*H)
         embedded = self.dropout(self.embedding(input))  # (B, 1, H)
         decoder_hidden_state = hidden[-1]               # (B, H)
 
@@ -117,8 +119,8 @@ class AttnDecoderRNN(nn.Module):
 
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
         batch_size = encoder_outputs.size(0)
-        decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device)
-        decoder_hidden = encoder_hidden
+        decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device) # (B,1)
+        decoder_hidden = encoder_hidden # (1,B,H)
 
         decoder_outputs = []
         attentions = []
