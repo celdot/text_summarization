@@ -91,52 +91,58 @@ class AttnDecoderRNN(nn.Module):
         self.embedding = nn.Embedding(output_size, hidden_size)
         self.encoder_projection = nn.Linear(2 * hidden_size, hidden_size)
         self.attention = DotAttention()
-
         self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
-        self.out = nn.Linear(hidden_size * 2, output_size)  # Because context + hidden = 2*hidden_size
+        self.out = nn.Linear(hidden_size * 2, output_size)
         self.dropout = nn.Dropout(dropout_p)
-
-    def forward_step(self, input, hidden, encoder_outputs):
-        embedded = self.dropout(self.embedding(input))  # (B, 1, H)
-        decoder_hidden_state = hidden[-1]               # (B, H)
-
-        # Project encoder outputs to match decoder's hidden size
-        projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
-
-        # Attention
-        context_combined, attn_weights = self.attention(projected_encoder_outputs, decoder_hidden_state)
-
-        # Run GRU
-        output, hidden = self.gru(embedded, hidden)
-
-        # Generate output token logits
-        output = self.out(context_combined.unsqueeze(1))  # (B, 1, V)
-
-        return output, hidden, attn_weights.unsqueeze(1)
 
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
         batch_size = encoder_outputs.size(0)
+        seq_len = target_tensor.size(1) if target_tensor is not None else self.max_length
+
         decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device)
         decoder_hidden = encoder_hidden
-
         decoder_outputs = []
         attentions = []
 
-        target_length = target_tensor.size(1) if target_tensor is not None else self.max_length
+        if target_tensor is not None:
+            # Teacher forcing: embed all targets at once
+            inputs = self.embedding(target_tensor)  # (B, T, H)
+            inputs = self.dropout(inputs)
 
-        for i in range(target_length):
-            decoder_output, decoder_hidden, attn_weights = self.forward_step(decoder_input, decoder_hidden, encoder_outputs)
-            decoder_outputs.append(decoder_output)
-            attentions.append(attn_weights)
+            outputs, hidden = self.gru(inputs, decoder_hidden)  # (B, T, H), (1, B, H)
 
-            if target_tensor is not None:
-                decoder_input = target_tensor[:, i].unsqueeze(1)
-            else:
-                topi = decoder_output.argmax(dim=-1)
-                decoder_input = topi.detach()
+            # Project encoder outputs
+            projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
 
-        decoder_outputs = torch.cat(decoder_outputs, dim=1)  # (B, T, V)
-        decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
-        attention_scores = torch.cat(attentions, dim=1)  # (B, T, S)
+            # Attention scores: batched dot product
+            attn_scores = torch.bmm(projected_encoder_outputs, outputs.transpose(1, 2))  # (B, S, T)
+            attn_weights = F.softmax(attn_scores, dim=1)  # (B, S, T)
 
-        return decoder_outputs, decoder_hidden, attention_scores
+            # Context: weighted sum
+            context = torch.bmm(projected_encoder_outputs.transpose(1, 2), attn_weights)  # (B, H, T)
+            context = context.transpose(1, 2)  # (B, T, H)
+
+            # Concatenate context and decoder output
+            combined = torch.cat((context, outputs), dim=2)  # (B, T, 2H)
+
+            output = self.out(combined)  # (B, T, V)
+            output = F.log_softmax(output, dim=-1)
+
+            return output, hidden, attn_weights.transpose(1, 2)  # (B, T, V), (1, B, H), (B, T, S)
+
+        else:
+            # Inference: step by step
+            for _ in range(self.max_length):
+                decoder_output, decoder_hidden, attn_weights = self.forward_step(
+                    decoder_input, decoder_hidden, encoder_outputs
+                )
+                decoder_outputs.append(decoder_output)
+                attentions.append(attn_weights)
+
+                decoder_input = decoder_output.argmax(dim=-1)
+
+            decoder_outputs = torch.cat(decoder_outputs, dim=1)
+            decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
+            attention_scores = torch.cat(attentions, dim=1)
+
+            return decoder_outputs, decoder_hidden, attention_scores
