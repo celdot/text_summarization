@@ -12,8 +12,10 @@ from utils.training_utils import (evaluate_loss, evaluate_model,
 
 plt.switch_backend('agg')
 import argparse
+import copy
 import os
 import pickle
+from itertools import product
 
 import numpy as np
 
@@ -54,6 +56,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     learning_rate = optimizer_hyperparams['learning_rate']
     weight_decay = optimizer_hyperparams['weight_decay']
     n_epochs = optimizer_hyperparams['n_epochs']
+    early_stopping_patience = optimizer_hyperparams["early_stopping_patience"]
     
     print_every = print_hyperparams['print_every']
     plot_every = print_hyperparams['plot_every']
@@ -69,6 +72,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     print_val_loss_total = 0  # Reset every print_every
     plot_val_loss_total = 0  # Reset every plot_every
     best_val_loss = float('inf')
+    no_improvement_count = 0
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -85,14 +89,20 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
         print_val_loss_total += val_loss
         plot_val_loss_total += val_loss
 
-        # Save the best model
+        # Save the best model if validation loss improves and implement early stopping
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            no_improvement_count = 0  # reset counter
             torch.save({
                 'epoch': epoch,
                 'en': encoder.state_dict(),
                 'de': decoder.state_dict(),
             }, os.path.join(save_directory, 'best_checkpoint.tar'))
+        else:
+            no_improvement_count += 1
+            if no_improvement_count >= early_stopping_patience:
+                print(f"Early stopping triggered at epoch {epoch}")
+                break
 
         # Print progress
         if epoch % print_every == 0:
@@ -242,6 +252,8 @@ if __name__ == "__main__":
     parser.add_argument('--save_every', type=int, default=10, help='Save every n epochs')
     parser.add_argument('--examples_every', type=int, default=5, help='Print examples every n epochs')
     parser.add_argument('--load_checkpoint', action='store_true', help='Load the best checkpoint if it exists')
+    parser.add_argument('--print_examples_every', type=int, default=5, help='Print examples every n epochs')
+    parser.add_argument('--early_stopping_patience', type=int, default=5, help='Early stopping patience')
     
     args = parser.parse_args()
     
@@ -259,13 +271,15 @@ if __name__ == "__main__":
     num_workers = args.num_workers
     load_checkpoint = args.load_checkpoint
     print_examples_every = args.print_examples_every
+    early_stopping_patience = args.early_stopping_patience
     
     optimizer_hyperparams = {
         'learning_rate': lr,
         'weight_decay': weight_decay,
         'n_epochs': n_epochs,
         'batch_size': batch_size,
-        'num_workers': num_workers
+        'num_workers': num_workers,
+        'early_stopping_patience': early_stopping_patience
     }
     
     model_hyperparams = {
@@ -286,3 +300,59 @@ if __name__ == "__main__":
         load_checkpoint=load_checkpoint,
         name=name
         )
+    
+    hyp_tuning = True
+    param_grid = {
+        'hidden_size': [64, 128, 256],
+        'max_length': [30, 50, 100],
+        'learning_rate': [1e-3, 1e-4, 1e-5],
+        'weight_decay': [1e-4, 1e-5, 1e-6],
+        'n_epochs': [20, 50, 100],
+        'early_stopping_patience': [3, 5, 10],
+    }
+
+    if hyp_tuning:
+
+        # Create all combinations of hyperparameters
+        keys, values = zip(*param_grid.items())
+        experiments = [dict(zip(keys, v)) for v in product(*values)]
+
+        best_val_loss = float('inf')
+        best_config = None
+
+        for i, config in enumerate(experiments):
+            print(f"\nRunning experiment {i+1}/{len(experiments)} with config: {config}")
+
+            optimizer_hyperparams = {
+                'learning_rate': config['learning_rate'],
+                'weight_decay': config['weight_decay'],
+                'n_epochs': config['n_epochs'],
+                'batch_size': batch_size,
+                'num_workers': num_workers,
+                'early_stopping_patience': config['early_stopping_patience']
+            }
+
+            model_hyperparams = {
+                'hidden_size': config['hidden_size'],
+                'max_length': config['max_length']
+            }
+
+            # Train and evaluate model
+            main(
+                root_dir=root_dir,
+                model_hyperparams=model_hyperparams,
+                optimizer_hyperparams=optimizer_hyperparams,
+                print_hyperparams=print_hyperparams,
+                load_checkpoint=False,  # Always retrain for each grid search entry
+                name=name
+            )
+
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                best_config = copy.deepcopy(config)
+
+        print("\nGrid search completed.")
+        print("Best validation loss: {:.4f}".format(best_val_loss))
+        print("Best config:", best_config)
+
+            
