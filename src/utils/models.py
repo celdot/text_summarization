@@ -114,7 +114,7 @@ class AttnDecoderRNN(nn.Module):
             target_tensor: (B, T) # T== seq_length in this function
             '''
         batch_size = encoder_outputs.size(0)
-        seq_len = target_tensor.size(1) if target_tensor is not None else self.max_length
+        T = target_tensor.size(1) if target_tensor is not None else self.max_length
 
         # Form the initial decoder input which consists of the start tokens concetanted with the 
         decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device)
@@ -154,15 +154,27 @@ class AttnDecoderRNN(nn.Module):
         #     return output, hidden, attn_weights.transpose(1, 2)  # (B, T, V), (1, B, H), (B, T, S)
 
         # else:
-        # Inference: step by step
-        for _ in range(self.max_length):
-            decoder_output, decoder_hidden, decoder_hidden_contextualized, attn_weights = self.forward_step(
-                decoder_input, decoder_hidden, decoder_hidden_contextualized, encoder_outputs
-            )  # (B,1,V), (1,B,H), (B,1,H), (B,S,1) TODO: BUG FIX implement decoder_hidden_contextualized
-            decoder_outputs.append(decoder_output)
-            attentions.append(attn_weights)
+        if target_tensor is not None:
+            for t in range(T):
+                decoder_output, decoder_hidden, decoder_hidden_contextualized, attn_weights = self.forward_step(
+                    decoder_input, decoder_hidden, decoder_hidden_contextualized, encoder_outputs
+                )  # (B,1,V), (1,B,H), (B,1,H), (B,S,1) TODO: BUG FIX implement decoder_hidden_contextualized
+                decoder_outputs.append(decoder_output)
+                attentions.append(attn_weights)
 
-            decoder_input = decoder_output.argmax(dim=-1) # (B,1)
+                # Use teacher forcing
+                decoder_input = target_tensor[:,t] # (B,1)
+
+        else:
+        # Inference: step by step
+            for _ in range(self.max_length):
+                decoder_output, decoder_hidden, decoder_hidden_contextualized, attn_weights = self.forward_step(
+                    decoder_input, decoder_hidden, decoder_hidden_contextualized, encoder_outputs
+                )  # (B,1,V), (1,B,H), (B,1,H), (B,S,1) TODO: BUG FIX implement decoder_hidden_contextualized
+                decoder_outputs.append(decoder_output)
+                attentions.append(attn_weights)
+
+                decoder_input = decoder_output.argmax(dim=-1) # (B,1)
 
         decoder_outputs = torch.cat(decoder_outputs, dim=1)  #(B,T,V)
         decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
