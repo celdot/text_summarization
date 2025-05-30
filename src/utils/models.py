@@ -18,13 +18,21 @@ class EncoderRNN(nn.Module):
         self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True, bidirectional=True)
         self.dropout = nn.Dropout(dropout_p)
 
+        self.output_projection = nn.Linear(2*self.hidden_size, hidden_size)
+
     def forward(self, input):
         # Input is of size (B,seq_length)
         embedded = self.dropout(self.embedding(input)) # embedded: (B,seq_length, embedding_dim) => here embedding_dim = H
         output, hidden = self.gru(embedded)  # hidden: (2, B, H), output (B, seq_length, 2*H)
 
         # Combine the two directions
-        hidden = hidden[0:hidden.size(0):2] + hidden[1:hidden.size(0):2]  # (1, B, H)
+        # hidden = hidden[0:hidden.size(0):2] + hidden[1:hidden.size(0):2]  # (1, B, H)
+        # Or alternatively use linear projection over average of the hiddenstates + tanh-activation
+        mean_hidden = output.mean(dim=1) # (B,2*H)
+
+        hidden = torch.tanh(self.output_projection(mean_hidden)) # (B,H)
+
+        hidden = hidden.unsqueeze(0) # (1,B,H)
 
         return output, hidden
 
@@ -97,9 +105,17 @@ class AttnDecoderRNN(nn.Module):
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
+        '''Computes the forward pass of the Decoder network
+
+        Args:
+            encoder_outputs: size (B,S,2*H)
+            encoder_hidden: size (1,B,H)
+            target_tensor: (B, T) # T== seq_length in this function
+            '''
         batch_size = encoder_outputs.size(0)
         seq_len = target_tensor.size(1) if target_tensor is not None else self.max_length
 
+        # Form the initial decoder input which consists of the start tokens concetanted with the 
         decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device)
         decoder_hidden = encoder_hidden
         decoder_outputs = []
@@ -109,7 +125,7 @@ class AttnDecoderRNN(nn.Module):
             # Teacher forcing: embed all targets at once
             inputs = self.embedding(target_tensor)  # (B, T, H)
             inputs = self.dropout(inputs)
-
+            
             outputs, hidden = self.gru(inputs, decoder_hidden)  # (B, T, H), (1, B, H)
 
             # Project encoder outputs
