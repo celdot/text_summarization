@@ -8,7 +8,8 @@ from tqdm import tqdm
 
 from utils.models import AttnDecoderRNN, EncoderRNN
 from utils.training_utils import (evaluate_loss, evaluate_model,
-                                  inference_testing, plot_metrics)
+                                  inference_testing, plot_metrics,
+                                  print_metrics)
 
 plt.switch_backend('agg')
 import argparse
@@ -52,33 +53,36 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, save_directory, figures_dir, optimizer_hyperparams,
-          print_examples_every):
+          print_examples_every, saved_metrics):
     
     learning_rate = optimizer_hyperparams['learning_rate']
     weight_decay = optimizer_hyperparams['weight_decay']
     n_epochs = optimizer_hyperparams['n_epochs']
     early_stopping_patience = optimizer_hyperparams["early_stopping_patience"]
+    
+    # Load saved metrics if available
+    start_epoch = saved_metrics.get('start_epoch')
+    plot_train_losses = saved_metrics.get('train_losses')
+    plot_val_losses = saved_metrics.get('val_losses')
+    best_val_loss = saved_metrics.get('best_val_loss')
+    plot_val_metrics = saved_metrics.get('val_metrics')
 
     # Initialize TensorBoard
     writer = SummaryWriter(log_dir=os.path.join(figures_dir, 'tensorboard_logs'))
 
     # Initializations
     print('Initializing ...')
-    plot_train_losses = []
-    plot_val_losses = []
-    plot_val_metrics = {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []}
     print_train_loss_total = 0
     plot_train_loss_total = 0
     print_val_loss_total = 0
     plot_val_loss_total = 0
-    best_val_loss = float('inf')
     no_improvement_count = 0
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     print("Training...")
-    for epoch in range(1, n_epochs + 1):
+    for epoch in range(start_epoch, n_epochs + 1):
         training_loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
         print_train_loss_total += training_loss
         plot_train_loss_total += training_loss
@@ -97,6 +101,10 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 'epoch': epoch,
                 'en': encoder.state_dict(),
                 'de': decoder.state_dict(),
+                'train_losses': plot_train_losses,
+                'val_losses': plot_val_losses,
+                'best_val_loss': best_val_loss,
+                'val_metrics': plot_val_metrics
             }, os.path.join(save_directory, 'best_checkpoint.tar'))
         else:
             no_improvement_count += 1
@@ -108,12 +116,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 epoch, print_train_loss_total, print_val_loss_total))
 
         val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
-        print('-----------------------------------')
-        for key in plot_val_metrics.keys():
-            plot_val_metrics[key].append(val_metrics[key])
-            writer.add_scalar(f'Metric/{key}', val_metrics[key], epoch)
-            print('{}: {:.4f}'.format(f"{key} score", val_metrics[key]))
-        print('-----------------------------------')
+        print_metrics(val_metrics, writer)
 
         print_train_loss_total = 0
         print_val_loss_total = 0
@@ -197,16 +200,34 @@ def main(root_dir,
     decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
     criterion = nn.NLLLoss(ignore_index=0)
 
+    start_epoch = 1
+    plot_train_losses = []
+    plot_val_losses = []
+    best_val_loss = float('inf')
+    plot_val_metrics = {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []}
+
     if load_checkpoint:
-      # Load the best model
-      checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
-      encoder.load_state_dict(checkpoint['encoder'])
-      decoder.load_state_dict(checkpoint['decoder'])
+        checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
+        encoder.load_state_dict(checkpoint['en'])
+        decoder.load_state_dict(checkpoint['de'])
+        start_epoch = checkpoint['epoch'] + 1  # Resume from next epoch
+        plot_train_losses = checkpoint.get('train_losses', [])
+        plot_val_losses = checkpoint.get('val_losses', [])
+        best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+        plot_val_metrics = checkpoint.get('val_metrics', {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []})
+        
+    saved_metrics = {
+        'start_epoch': start_epoch,
+        'train_losses': plot_train_losses,
+        'val_losses': plot_val_losses,
+        'best_val_loss': best_val_loss,
+        'val_metrics': plot_val_metrics
+    }
 
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
-          feature_tokenizer.index2word, EOS_token, save_dir, figures_dir,
-          optimizer_hyperparams, print_examples_every)
+      feature_tokenizer.index2word, EOS_token, save_dir, figures_dir,
+      optimizer_hyperparams, print_examples_every, saved_metrics)
 
     # Load the best model
     checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
@@ -220,10 +241,7 @@ def main(root_dir,
 
     # Evaluate the model
     metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token)
-    print('-----------------------------------')
-    for key in ["BLEU", "Rouge-L-F", "Rouge-1-F", "Rouge-2-F"]:
-        print('{}: {:.4f}'.format(f"{key} score", metrics[key]))
-    print('-----------------------------------')
+    print_metrics(metrics)
     # Get a random sample from the test set
     inference_testing(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, nb_decoding_test=5)
             

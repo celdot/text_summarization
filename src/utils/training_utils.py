@@ -157,3 +157,14 @@ def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_de
                 count_test += 1
             if count_test == nb_decoding_test:
                 break
+            
+def print_metrics(metrics, writer=None):
+    """
+    Prints the metrics and optionally logs them to TensorBoard.
+    """
+    print('-----------------------------------')
+    for key in ["BLEU", "Rouge-L-F", "Rouge-1-F", "Rouge-2-F"]:
+        if writer:
+            writer.add_scalar(f'Metrics/{key}', metrics[key])
+        print('{}: {:.4f}'.format(f"{key} score", metrics[key]))
+    print('-----------------------------------')
