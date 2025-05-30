@@ -84,14 +84,14 @@ def make_predictions(encoder, decoder, input_tensor, index2word, EOS_token):
 
     return decoded_words
 
-def compute_metrics(predictions, targets, n):
+def compute_metrics(predictions, targets, n1=1, n2=2):
     """
-    Computes the BLEU score and ROUGE score for the predictions and targets.
+    Computes the BLEU score for n1-grams and ROUGE-n1, ROGUE-n2 and ROGUE-L score for the predictions and targets.
     """    
     metrics = {}
-    rouge_metrics = Rouge(variants=["L", n], multiref="best")
+    rouge_metrics = Rouge(variants=["L", n1, n2], multiref="best")
     
-    metrics["bleu"] = bleu_score(predictions, targets, n_gram=n)
+    metrics["bleu"] = bleu_score(predictions, targets, n_gram=n1)
 
     list_predictions = []
     list_targets = []
@@ -125,7 +125,7 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
             predictions.append(predicted_words)
             targets.append(target_words)
 
-    return compute_metrics(predictions, targets, n=2)
+    return compute_metrics(predictions, targets, n1=1, n2=2)
 
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
           decoder_optimizer, criterion):
@@ -207,6 +207,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
             print('BLEU score: {:.4f}'.format(val_metrics['bleu']))
             print('ROUGE-L score: {:.4f}'.format(val_metrics['Rouge-L-F']))
+            print('ROUGE-1 score: {:.4f}'.format(val_metrics['Rouge-1-F']))
             print('ROUGE-2 score: {:.4f}'.format(val_metrics['Rouge-2-F']))
             print('-----------------------------------')
             print_train_loss_total = 0
@@ -332,6 +333,7 @@ def main(root_dir,
     metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token)
     print('BLEU score: {:.4f}'.format(metrics['bleu']))
     print('ROUGE-L score: {:.4f}'.format(metrics['Rouge-L-F']))
+    print('ROUGE-1 score: {:.4f}'.format(metrics['Rouge-1-F']))
     print('ROUGE-2 score: {:.4f}'.format(metrics['Rouge-2-F']))
     print('-----------------------------------')
     # Get a random sample from the test set
