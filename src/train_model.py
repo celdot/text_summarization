@@ -121,6 +121,8 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
     with torch.no_grad():
         for data in tqdm(dataloader):
             input_tensor, target_tensor = data
+            # Set target_tensor to None in order to do inference (and not use teacher forcing)
+            target_tensor = None
 
             predicted_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token)
 
