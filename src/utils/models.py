@@ -77,19 +77,30 @@ class DotAttention(nn.Module):
     def __init__(self):
         super().__init__()
 
-    def forward(self, encoder_hidden_states, decoder_hidden_state):
-        # encoder_hidden_states: (B, T, H) # with T == S from perviously and == seq_length of encoder
-        # decoder_hidden_state:  (B, H)
+    def forward(self, encoder_outputs, decoder_hidden):
+        '''Calculates the attention mechanism
+        Args:
+            encoder_outputs: size (B,S,2*H)
+            decoder_hidden: size (1,B,H) 
+        '''
+         # Project encoder outputs
+        projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
 
-        # Compute attention scores
-        attention_weights = torch.bmm(encoder_hidden_states, decoder_hidden_state.unsqueeze(2))  # (B, T, 1)
-        attention_weights = F.softmax(attention_weights.squeeze(2), dim=1)  # (B, T)
+        # Attention scores: batched dot product (decoder_hidden = (1,B,H))
+        attn_scores = torch.bmm(projected_encoder_outputs, decoder_hidden.permute(1, 2, 0))  # (B, S, 1)
+        attn_weights = F.softmax(attn_scores, dim=1)  # (B, S, 1)
 
-        # Compute context vector
-        context = torch.bmm(encoder_hidden_states.transpose(1, 2), attention_weights.unsqueeze(2)).squeeze(2)  # (B, H)
+        # Context: weighted sum
+        context = torch.bmm(projected_encoder_outputs.transpose(1, 2), attn_weights)  # (B, H, 1)
+        context = context.transpose(1, 2)  # (B, 1, H)
 
-        # Concatenate context with decoder hidden state
-        return torch.cat((context, decoder_hidden_state), dim=1), attention_weights
+        # Concatenate context and decoder output (which is equal to the final hidden state in the step-by-step approach) (decoder_hidden = (1,B,H))
+        combined = torch.cat((context, decoder_hidden.permute(1, 0, 2)), dim=2)  # (B, 1, 2H)
+
+        decoder_hidden_contextualized = torch.tanh(self.context_hidden(combined)) # (B,1,H)
+
+        return decoder_hidden_contextualized, attn_weights
+        
 
 class AttnDecoderRNN(nn.Module):
     def __init__(self, hidden_size, output_size, max_length, dropout_p=0.1):
