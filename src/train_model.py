@@ -52,16 +52,12 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, save_directory, figures_dir, optimizer_hyperparams,
-          print_hyperparams):
+          print_examples_every):
     
     learning_rate = optimizer_hyperparams['learning_rate']
     weight_decay = optimizer_hyperparams['weight_decay']
     n_epochs = optimizer_hyperparams['n_epochs']
     early_stopping_patience = optimizer_hyperparams["early_stopping_patience"]
-    
-    print_every = print_hyperparams['print_every']
-    plot_every = print_hyperparams['plot_every']
-    print_examples_every = print_hyperparams['print_examples_every']
 
     # Initialize TensorBoard
     writer = SummaryWriter(log_dir=os.path.join(figures_dir, 'tensorboard_logs'))
@@ -108,33 +104,27 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 print(f"Early stopping triggered at epoch {epoch}")
                 break
 
-        if epoch % print_every == 0:
-            print_train_loss_total /= print_every
-            print_val_loss_total /= print_every
-            print('Epoch: {}; Avg train loss: {:.4f}; Avg val loss: {:.4f}.'.format(
-                    epoch, print_train_loss_total, print_val_loss_total))
+        print('Epoch: {}; Avg train loss: {:.4f}; Avg val loss: {:.4f}.'.format(
+                epoch, print_train_loss_total, print_val_loss_total))
 
-            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
-            print('-----------------------------------')
-            for key in plot_val_metrics.keys():
-                plot_val_metrics[key].append(val_metrics[key])
-                writer.add_scalar(f'Metric/{key}', val_metrics[key], epoch)
-                print('{}: {:.4f}'.format(f"{key} score", val_metrics[key]))
-            print('-----------------------------------')
+        val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
+        print('-----------------------------------')
+        for key in plot_val_metrics.keys():
+            plot_val_metrics[key].append(val_metrics[key])
+            writer.add_scalar(f'Metric/{key}', val_metrics[key], epoch)
+            print('{}: {:.4f}'.format(f"{key} score", val_metrics[key]))
+        print('-----------------------------------')
 
-            print_train_loss_total = 0
-            print_val_loss_total = 0
+        print_train_loss_total = 0
+        print_val_loss_total = 0
 
         if epoch % print_examples_every == 0:
             inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5, writer=writer)
 
-        if epoch % plot_every == 0:
-            plot_loss_avg = plot_train_loss_total / plot_every
-            plot_train_losses.append(plot_loss_avg)
-            plot_val_loss_avg = plot_val_loss_total / plot_every
-            plot_val_losses.append(plot_val_loss_avg)
-            plot_train_loss_total = 0
-            plot_val_loss_total = 0
+        plot_train_losses.append(plot_train_loss_total)
+        plot_val_losses.append(plot_val_loss_total)
+        plot_train_loss_total = 0
+        plot_val_loss_total = 0
 
     writer.close()
     plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
@@ -142,7 +132,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
 def main(root_dir,
     model_hyperparams,
     optimizer_hyperparams,
-    print_hyperparams,
+    print_examples_every,
     load_checkpoint = False,
     name = "WikiHow",
     ):
@@ -216,7 +206,7 @@ def main(root_dir,
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           feature_tokenizer.index2word, EOS_token, save_dir, figures_dir,
-          optimizer_hyperparams, print_hyperparams)
+          optimizer_hyperparams, print_examples_every)
 
     # Load the best model
     checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
@@ -249,10 +239,6 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', type=float, default=32, help='Batch size')
     parser.add_argument('--num_workers', type=float, default=4, help='Number of workers (should be 4*nb_GPU')
     parser.add_argument('--n_epochs', type=int, default=50, help='Number of epochs')
-    parser.add_argument('--print_every', type=int, default=10, help='Print every n epochs')
-    parser.add_argument('--plot_every', type=int, default=10, help='Plot every n epochs')
-    parser.add_argument('--save_every', type=int, default=10, help='Save every n epochs')
-    parser.add_argument('--examples_every', type=int, default=5, help='Print examples every n epochs')
     parser.add_argument('--load_checkpoint', action='store_true', help='Load the best checkpoint if it exists')
     parser.add_argument('--print_examples_every', type=int, default=5, help='Print examples every n epochs')
     parser.add_argument('--early_stopping_patience', type=int, default=5, help='Early stopping patience')
@@ -265,9 +251,6 @@ if __name__ == "__main__":
     lr = args.learning_rate
     weight_decay = args.weight_decay
     n_epochs = args.n_epochs
-    print_every = args.print_every
-    plot_every = args.plot_every
-    save_every = args.save_every
     root_dir = args.directory
     batch_size = args.batch_size
     num_workers = args.num_workers
@@ -289,16 +272,10 @@ if __name__ == "__main__":
         'max_length': max_length
     }
     
-    print_hyperparams = {
-        'print_every': print_every,
-        'plot_every': plot_every,
-        'print_examples_every': print_examples_every
-    }
-    
     main(root_dir = root_dir,
         model_hyperparams=model_hyperparams,
         optimizer_hyperparams=optimizer_hyperparams,
-        print_hyperparams=print_hyperparams,
+        print_examples_every=print_examples_every,
         load_checkpoint=load_checkpoint,
         name=name
         )
