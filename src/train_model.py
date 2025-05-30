@@ -30,7 +30,7 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
     ax[0].set_xlabel('Epochs')
     ax[0].set_ylabel('Loss')
     ax[0].set_title('Training and Validation Losses')
-    ax[0].legend()
+    ax[0].legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2)
 
     # Plot validation metrics
     for metric_name, metric_values in val_metrics.items():
@@ -38,14 +38,15 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
     ax[1].set_xlabel('Epochs')
     ax[1].set_ylabel('Metric Value')
     ax[1].set_title('Validation Metrics')
-    ax[1].legend()
+    # Put the legend below the plot, centered, with 2 columns
+    ax[1].legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2)
     plt.savefig(os.path.join(figures_dir, 'metrics.png'))
     plt.close(fig)
 
 def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
     with torch.no_grad():
-        for data in tqdm(dataloader):
+        for data in dataloader:
             input_tensor, target_tensor = data
 
             encoder_outputs, encoder_hidden = encoder(input_tensor)
@@ -97,9 +98,13 @@ def make_predictions(encoder, decoder, input_tensor, index2word, EOS_token):
 def compute_metrics(predictions, targets, n1=1, n2=2):
     """
     Computes the BLEU score for n1-grams and ROUGE-n1, ROGUE-n2 and ROGUE-L score for the predictions and targets.
-    """    
+    """
     metrics = {}
     rouge_metrics = Rouge(variants=["L", n1, n2], multiref="best")
+    
+    # Remove SOS and EOS tokens from predictions and targets
+    predictions = [pred.replace('SOS', '').replace('EOS', '').strip() for pred in predictions]
+    targets = [target.replace('SOS', '').replace('EOS', '').strip() for target in targets]
     
     metrics["BLEU"] = bleu_score(predictions, targets, n_gram=n1)
 
@@ -126,7 +131,7 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
     targets = []
     
     with torch.no_grad():
-        for data in tqdm(dataloader):
+        for data in dataloader:
             input_tensor, target_tensor = data
 
             predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
@@ -217,10 +222,9 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
         if epoch % print_every == 0:
             print_train_loss_total = print_train_loss_total / print_every
             print_val_loss_total = print_val_loss_total / print_every
-            print('epoch: {}; Average training loss: {:.4f}; Average validation loss: {:.4f}.'.format(
-                    epoch, epoch / n_epochs * 100, print_train_loss_total, print_val_loss_total))
-
-        if epoch % print_examples_every == 0:
+            print('Epoch: {}; Average training loss: {:.4f}; Average validation loss: {:.4f}.'.format(
+                    epoch, print_train_loss_total, print_val_loss_total))
+            
             # Compute metrics for validation set
             val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
             print('-----------------------------------')
@@ -231,7 +235,8 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     
             print_train_loss_total = 0
             print_val_loss_total = 0
-            
+
+        if epoch % print_examples_every == 0:
             # Get a random sample from the validation set
             nb_decoding_test = 5
             count_test = 0
@@ -351,7 +356,7 @@ def main(root_dir,
     # Evaluate the model
     metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token)
     print('-----------------------------------')
-    for key in metrics.keys():
+    for key in ["BLEU", "Rouge-L-F", "Rouge-1-F", "Rouge-2-F"]:
         print('{}: {:.4f}'.format(f"{key} score", metrics[key]))
     print('-----------------------------------')
     # Get a random sample from the test set
