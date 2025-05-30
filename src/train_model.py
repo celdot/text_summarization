@@ -68,12 +68,12 @@ def decode_data(text_ids, index2word, EOS_token):
 
     return " ".join(decoded_words)
 
-def make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token):
+def make_predictions(encoder, decoder, input_tensor, index2word, EOS_token):
     """
-    Computes the summary for the given input tensor and target tensor.
+    Computes the summary for the given input tensor.
     """
     input_tensor = input_tensor[0].unsqueeze(0)
-    target_tensor = target_tensor[0].unsqueeze(0)
+    target_tensor = None  # Set target_tensor to None for inference
 
     encoder_outputs, encoder_hidden = encoder(input_tensor)
     decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
@@ -82,19 +82,16 @@ def make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, 
     _, topi = decoder_outputs.topk(1)
     decoded_words = decode_data(topi.squeeze(), index2word, EOS_token)
 
-    # Get the target words
-    target_words = decode_data(target_tensor, index2word, EOS_token)
+    return decoded_words
 
-    return decoded_words, target_words
-
-def compute_metrics(predictions, targets, n1, n2=1):
+def compute_metrics(predictions, targets, n):
     """
-    Computes the BLEU score for n1-grams and ROUGE-n1, ROGUE-n2 and ROGUE-L score for the predictions and targets.
+    Computes the BLEU score and ROUGE score for the predictions and targets.
     """    
     metrics = {}
-    rouge_metrics = Rouge(variants=["L", n1, n2], multiref="best")
+    rouge_metrics = Rouge(variants=["L", n], multiref="best")
     
-    metrics["bleu"] = bleu_score(predictions, targets, n_gram=n1)
+    metrics["bleu"] = bleu_score(predictions, targets, n_gram=n)
 
     list_predictions = []
     list_targets = []
@@ -121,15 +118,14 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
     with torch.no_grad():
         for data in tqdm(dataloader):
             input_tensor, target_tensor = data
-            # Set target_tensor to None in order to do inference (and not use teacher forcing)
-            target_tensor = None
 
-            predicted_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, index2word, EOS_token)
+            predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
+            target_words = decode_data(target_tensor[0], index2word, EOS_token)
 
             predictions.append(predicted_words)
             targets.append(target_words)
 
-    return compute_metrics(predictions, targets, n1=2, n2=1)
+    return compute_metrics(predictions, targets, n=2)
 
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
           decoder_optimizer, criterion):
@@ -344,9 +340,9 @@ def main(root_dir,
         if i == index:
             input_tensor, target_tensor = data
             break
-    decoded_words, target_words = make_predictions(encoder, decoder, input_tensor, target_tensor, feature_tokenizer.index2word, EOS_token)
+    decoded_words, = make_predictions(encoder, decoder, input_tensor, feature_tokenizer.index2word, EOS_token)
     print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index2word, EOS_token)))
-    print('Target: {}'.format(target_words))
+    print('Target: {}'.format(decode_data(target_tensor[0], feature_tokenizer.index2word, EOS_token)))
     print('Predicted: {}'.format(decoded_words))
     print('-----------------------------------')
 
