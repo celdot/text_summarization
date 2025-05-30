@@ -101,7 +101,8 @@ class AttnDecoderRNN(nn.Module):
         self.encoder_projection = nn.Linear(2 * hidden_size, hidden_size)
         self.attention = DotAttention()
         self.gru = nn.GRU(hidden_size, hidden_size, batch_first=True)
-        self.out = nn.Linear(hidden_size * 2, output_size)
+        self.context_hidden = nn.Linear(2*hidden_size, hidden_size)
+        self.out = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
@@ -125,7 +126,7 @@ class AttnDecoderRNN(nn.Module):
             # Teacher forcing: embed all targets at once
             inputs = self.embedding(target_tensor)  # (B, T, H)
             inputs = self.dropout(inputs)
-            
+
             outputs, hidden = self.gru(inputs, decoder_hidden)  # (B, T, H), (1, B, H)
 
             # Project encoder outputs
@@ -142,7 +143,8 @@ class AttnDecoderRNN(nn.Module):
             # Concatenate context and decoder output
             combined = torch.cat((context, outputs), dim=2)  # (B, T, 2H)
 
-            output = self.out(combined)  # (B, T, V)
+            hidden_contextualized = torch.tanh(self.context_hidden(combined)) # (B,T,2H)
+            output = self.out(hidden_contextualized)  # (B, T, V)
             output = F.log_softmax(output, dim=-1)
 
             return output, hidden, attn_weights.transpose(1, 2)  # (B, T, V), (1, B, H), (B, T, S)
