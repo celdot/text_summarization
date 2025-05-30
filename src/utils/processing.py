@@ -155,16 +155,8 @@ def save_as_tensor(dataset_dir, data, filename):
     Save the data as a torch tensor.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Saving {filename}...")
 
-    if os.path.exists(os.path.join(dataset_dir, filename)):
-        print(f"{filename} already exists. Skipping.")
-        return
-
-    print(f"{filename} dtype: {data.dtype}, shape: {data.shape}")
-
-    if data.dtype != np.int64:
-        raise TypeError(f"{filename} has invalid dtype: {data.dtype}")
+    print(f"{filename}, shape: {data.shape}")
 
     data = torch.from_numpy(data).long().to(device)
     torch.save(data, os.path.join(dataset_dir, filename))
