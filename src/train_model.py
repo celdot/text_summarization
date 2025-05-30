@@ -18,6 +18,7 @@ import pickle
 from itertools import product
 
 import numpy as np
+from torch.utils.tensorboard import SummaryWriter
 
 
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
@@ -62,37 +63,40 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     plot_every = print_hyperparams['plot_every']
     print_examples_every = print_hyperparams['print_examples_every']
 
+    # Initialize TensorBoard
+    writer = SummaryWriter(log_dir=os.path.join(figures_dir, 'tensorboard_logs'))
+
     # Initializations
     print('Initializing ...')
     plot_train_losses = []
     plot_val_losses = []
     plot_val_metrics = {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []}
-    print_train_loss_total = 0  # Reset every print_every
-    plot_train_loss_total = 0  # Reset every plot_every
-    print_val_loss_total = 0  # Reset every print_every
-    plot_val_loss_total = 0  # Reset every plot_every
+    print_train_loss_total = 0
+    plot_train_loss_total = 0
+    print_val_loss_total = 0
+    plot_val_loss_total = 0
     best_val_loss = float('inf')
     no_improvement_count = 0
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    # Training loop
     print("Training...")
     for epoch in range(1, n_epochs + 1):
         training_loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
         print_train_loss_total += training_loss
         plot_train_loss_total += training_loss
 
-        # Evaluate on validation set
         val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
         print_val_loss_total += val_loss
         plot_val_loss_total += val_loss
 
-        # Save the best model if validation loss improves and implement early stopping
+        writer.add_scalar('Loss/Train', training_loss, epoch)
+        writer.add_scalar('Loss/Validation', val_loss, epoch)
+
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            no_improvement_count = 0  # reset counter
+            no_improvement_count = 0
             torch.save({
                 'epoch': epoch,
                 'en': encoder.state_dict(),
@@ -104,29 +108,26 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 print(f"Early stopping triggered at epoch {epoch}")
                 break
 
-        # Print progress
         if epoch % print_every == 0:
-            print_train_loss_total = print_train_loss_total / print_every
-            print_val_loss_total = print_val_loss_total / print_every
-            print('Epoch: {}; Average training loss: {:.4f}; Average validation loss: {:.4f}.'.format(
+            print_train_loss_total /= print_every
+            print_val_loss_total /= print_every
+            print('Epoch: {}; Avg train loss: {:.4f}; Avg val loss: {:.4f}.'.format(
                     epoch, print_train_loss_total, print_val_loss_total))
-            
-            # Compute metrics for validation set
+
             val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
             print('-----------------------------------')
             for key in plot_val_metrics.keys():
                 plot_val_metrics[key].append(val_metrics[key])
+                writer.add_scalar(f'Metric/{key}', val_metrics[key], epoch)
                 print('{}: {:.4f}'.format(f"{key} score", val_metrics[key]))
             print('-----------------------------------')
-    
+
             print_train_loss_total = 0
             print_val_loss_total = 0
 
         if epoch % print_examples_every == 0:
-            # Get a random sample from the validation set
-            inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5)
+            inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5, writer=writer)
 
-        # Plot loss progress
         if epoch % plot_every == 0:
             plot_loss_avg = plot_train_loss_total / plot_every
             plot_train_losses.append(plot_loss_avg)
@@ -135,6 +136,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             plot_train_loss_total = 0
             plot_val_loss_total = 0
 
+    writer.close()
     plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
 
 def main(root_dir,
@@ -310,49 +312,5 @@ if __name__ == "__main__":
         'n_epochs': [20, 50, 100],
         'early_stopping_patience': [3, 5, 10],
     }
-
-    if hyp_tuning:
-
-        # Create all combinations of hyperparameters
-        keys, values = zip(*param_grid.items())
-        experiments = [dict(zip(keys, v)) for v in product(*values)]
-
-        best_val_loss = float('inf')
-        best_config = None
-
-        for i, config in enumerate(experiments):
-            print(f"\nRunning experiment {i+1}/{len(experiments)} with config: {config}")
-
-            optimizer_hyperparams = {
-                'learning_rate': config['learning_rate'],
-                'weight_decay': config['weight_decay'],
-                'n_epochs': config['n_epochs'],
-                'batch_size': batch_size,
-                'num_workers': num_workers,
-                'early_stopping_patience': config['early_stopping_patience']
-            }
-
-            model_hyperparams = {
-                'hidden_size': config['hidden_size'],
-                'max_length': config['max_length']
-            }
-
-            # Train and evaluate model
-            main(
-                root_dir=root_dir,
-                model_hyperparams=model_hyperparams,
-                optimizer_hyperparams=optimizer_hyperparams,
-                print_hyperparams=print_hyperparams,
-                load_checkpoint=False,  # Always retrain for each grid search entry
-                name=name
-            )
-
-            if val_loss < best_val_loss:
-                best_val_loss = val_loss
-                best_config = copy.deepcopy(config)
-
-        print("\nGrid search completed.")
-        print("Best validation loss: {:.4f}".format(best_val_loss))
-        print("Best config:", best_config)
 
             

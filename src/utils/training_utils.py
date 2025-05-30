@@ -131,10 +131,7 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
 
     return compute_metrics(predictions, targets, n1=1, n2=2)
 
-def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_decoding_test=5):
-    """
-    Runs inference on the model and prints the predictions.
-    """
+def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_decoding_test=5, writer=None):
     encoder.eval()
     decoder.eval()
     count_test = 0
@@ -144,11 +141,19 @@ def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_de
             if i in random_list:
                 input_tensor, target_tensor = data
                 decoded_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
-                print('Input: {}'.format(decode_data(input_tensor[0], index2word, EOS_token)))
-                print('Target: {}'.format(decode_data(target_tensor[0], index2word, EOS_token)))
+                input_text = decode_data(input_tensor[0], index2word, EOS_token)
+                target_text = decode_data(target_tensor[0], index2word, EOS_token)
+
+                print('Input: {}'.format(input_text))
+                print('Target: {}'.format(target_text))
                 print('Predicted: {}'.format(decoded_words))
                 print('-----------------------------------')
+
+                if writer:
+                    writer.add_text(f'Examples/Input_{count_test}', input_text, i)
+                    writer.add_text(f'Examples/Target_{count_test}', target_text, i)
+                    writer.add_text(f'Examples/Predicted_{count_test}', decoded_words, i)
+
                 count_test += 1
             if count_test == nb_decoding_test:
                 break
-            print('-----------------------------------')
