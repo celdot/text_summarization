@@ -181,7 +181,7 @@ class AttnDecoderRNN(nn.Module):
             for _ in range(self.max_length):
                 decoder_output, decoder_hidden, decoder_hidden_contextualized, attn_weights = self.forward_step(
                     decoder_input, decoder_hidden, decoder_hidden_contextualized, encoder_outputs
-                )  # (B,1,V), (1,B,H), (B,1,H), (B,S,1) TODO: BUG FIX implement decoder_hidden_contextualized
+                )  # (B,1,V), (1,B,H), (B,1,H), (B,S,1)
                 decoder_outputs.append(decoder_output)
                 attentions.append(attn_weights)
 
@@ -201,7 +201,7 @@ class AttnDecoderRNN(nn.Module):
             decoder_hidden_contextualized: size (B,1,H)
             encoder_ouputs: size (B,S,2*H)'''
         
-        # 1. Embedd the decoder input and concatenate the contextualized hidden 
+        # 1. Embedd the decoder input and concatenate the contextualized hidden
         inputs = self.embedding(decoder_input)  # (B, H)
         inputs = inputs.unsqueeze(1) # (B,1,2*H)
         inputs = torch.cat((inputs, decoder_hidden_contextualized), dim=1) # (B,1, 2*H)
@@ -216,14 +216,12 @@ class AttnDecoderRNN(nn.Module):
         # is done later
         # output = F.log_softmax(output, dim=-1)
         return output, hidden, hidden_contextualized, attn_weights # (B,1,V), (1,B,H), (B,1,H), (B,S,1)
-        # raise NotImplementedError("Forgot to implement the forward step for the deocder")
-        # pass
 
     def attention(self, encoder_outputs, decoder_hidden):
         '''Calculates the attention mechanism
         Args:
             encoder_outputs: size (B,S,2*H)
-            decoder_hidden: size (1,B,H) 
+            decoder_hidden: size (1,B,H)
         '''
          # Project encoder outputs
         projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
