@@ -17,6 +17,7 @@ import copy
 import os
 import pickle
 from itertools import product
+from pathlib import Path
 
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
@@ -291,6 +292,8 @@ if __name__ == "__main__":
         'hidden_size': hidden_size,
         'max_length': max_length
     }
+    
+    root_dir = Path.cwd().parent
     
     main(root_dir = root_dir,
         model_hyperparams=model_hyperparams,

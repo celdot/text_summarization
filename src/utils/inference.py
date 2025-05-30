@@ -43,12 +43,7 @@ def summarize_on_cpu(input_tensor, encoder, decoder, EOS_token, index2word):
 
     return ' '.join(decoded_words)
 
-def main(input_tensor):
-    hidden_size = 128
-    max_length = 50
-    
-    root_dir = Path.cwd().parent
-    name = 'WikiHow'
+def main(root_dir, name, hidden_size, max_length, input_tensor):
     dataset_dir = os.path.join(root_dir, 'data', name)
     save_dir = os.path.join(root_dir, 'checkpoints', name)
     
@@ -74,8 +69,13 @@ def main(input_tensor):
 
 if __name__ == "__main__":
     # Ask for input tensor from the user
-    input_tensor = input("Enter the input tensor ")
-    main(input_tensor)
+    root_dir = Path.cwd().parent
+    hidden_size = 128
+    max_length = 50
     
-
-
+    name = 'WikiHow'
+    while True:
+        input_tensor = input("Enter the text to summarize (or type 'exit' to quit): ")
+        main(root_dir, name, hidden_size, max_length, input_tensor)
+        if input_tensor.lower() == 'exit':
+            break
