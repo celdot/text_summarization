@@ -216,8 +216,8 @@ class AttnDecoderRNN(nn.Module):
         # is done later
         # output = F.log_softmax(output, dim=-1)
         return output, hidden, hidden_contextualized, attn_weights # (B,1,V), (1,B,H), (B,1,H), (B,S,1)
-        raise NotImplementedError("Forgot to implement the forward step for the deocder")
-        pass
+        # raise NotImplementedError("Forgot to implement the forward step for the deocder")
+        # pass
 
     def attention(self, encoder_outputs, decoder_hidden):
         '''Calculates the attention mechanism

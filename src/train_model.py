@@ -18,18 +18,28 @@ import pickle
 import numpy as np
 
 
-def plot_losses(figures_dir, train_losses, val_losses):
+def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
     """
     Plots the training and validation losses.
     """
-    fig = plt.figure(figsize=(10, 5))
-    plt.plot(train_losses, label='Training Loss')
-    plt.plot(val_losses, label='Validation Loss')
-    plt.xlabel('Epochs')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Losses')
-    plt.legend()
-    plt.savefig(os.path.join(figures_dir, 'losses.png'))
+    plt.rcParams.update({'font.size': 22})
+    fig, ax = plt.subplots(1, 2, figsize=(15, 5))
+    # Plot training and validation losses
+    ax[0].plot(train_losses, label='Training Loss')
+    ax[0].plot(val_losses, label='Validation Loss')
+    ax[0].set_xlabel('Epochs')
+    ax[0].set_ylabel('Loss')
+    ax[0].set_title('Training and Validation Losses')
+    ax[0].legend()
+
+    # Plot validation metrics
+    for metric_name, metric_values in val_metrics.items():
+        ax[1].plot(metric_values, label=metric_name)
+    ax[1].set_xlabel('Epochs')
+    ax[1].set_ylabel('Metric Value')
+    ax[1].set_title('Validation Metrics')
+    ax[1].legend()
+    plt.savefig(os.path.join(figures_dir, 'metrics.png'))
     plt.close(fig)
 
 def evaluate_loss(dataloader, encoder, decoder, criterion):
@@ -165,6 +175,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     print('Initializing ...')
     plot_train_losses = []
     plot_val_losses = []
+    plot_val_metrics = {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []}
     print_train_loss_total = 0  # Reset every print_every
     plot_train_loss_total = 0  # Reset every plot_every
     print_val_loss_total = 0  # Reset every print_every
@@ -205,13 +216,15 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
         if epoch % print_examples_every == 0:
             # Compute metrics for validation set
             val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
-            print('BLEU score: {:.4f}'.format(val_metrics['bleu']))
-            print('ROUGE-L score: {:.4f}'.format(val_metrics['Rouge-L-F']))
-            print('ROUGE-1 score: {:.4f}'.format(val_metrics['Rouge-1-F']))
-            print('ROUGE-2 score: {:.4f}'.format(val_metrics['Rouge-2-F']))
             print('-----------------------------------')
+            for key in plot_val_metrics.keys():
+                plot_val_metrics[key].append(val_metrics[key])
+                print('{}: {:.4f}'.format(f"{key} score", val_metrics[key]))
+            print('-----------------------------------')
+    
             print_train_loss_total = 0
             print_val_loss_total = 0
+            
             # Get a random sample from the validation set
             nb_decoding_test = 5
             count_test = 0
@@ -236,7 +249,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             plot_train_loss_total = 0
             plot_val_loss_total = 0
 
-    plot_losses(figures_dir, plot_train_losses, plot_val_losses)
+    plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
 
 def main(root_dir,
     load_checkpoint = False,     
@@ -331,10 +344,9 @@ def main(root_dir,
 
     # Evaluate the model
     metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token)
-    print('BLEU score: {:.4f}'.format(metrics['bleu']))
-    print('ROUGE-L score: {:.4f}'.format(metrics['Rouge-L-F']))
-    print('ROUGE-1 score: {:.4f}'.format(metrics['Rouge-1-F']))
-    print('ROUGE-2 score: {:.4f}'.format(metrics['Rouge-2-F']))
+    print('-----------------------------------')
+    for key in metrics.keys():
+        print('{}: {:.4f}'.format(f"{key} score", metrics[key]))
     print('-----------------------------------')
     # Get a random sample from the test set
     index = random.randint(0, len(test_dataloader) - 1)
