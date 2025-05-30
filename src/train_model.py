@@ -116,7 +116,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 epoch, print_train_loss_total, print_val_loss_total))
 
         val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
-        for metric_name, metric_value in val_metrics.items():
+        for metric_name, metric_value in plot_val_metrics.items():
             plot_val_metrics[metric_name].append(metric_value)
         print_metrics(val_metrics, writer)
 
@@ -260,7 +260,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_workers', type=float, default=4, help='Number of workers (should be 4*nb_GPU')
     parser.add_argument('--n_epochs', type=int, default=50, help='Number of epochs')
     parser.add_argument('--load_checkpoint', action='store_true', help='Load the best checkpoint if it exists')
-    parser.add_argument('--print_examples_every', type=int, default=5, help='Print examples every n epochs')
+    parser.add_argument('--print_example_every', type=int, default=5, help='Print examples every n epochs')
     parser.add_argument('--early_stopping_patience', type=int, default=5, help='Early stopping patience')
     
     args = parser.parse_args()
@@ -275,7 +275,7 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     num_workers = args.num_workers
     load_checkpoint = args.load_checkpoint
-    print_examples_every = args.print_examples_every
+    print_example_every = args.print_example_every
     early_stopping_patience = args.early_stopping_patience
     
     optimizer_hyperparams = {
@@ -295,7 +295,7 @@ if __name__ == "__main__":
     main(root_dir = root_dir,
         model_hyperparams=model_hyperparams,
         optimizer_hyperparams=optimizer_hyperparams,
-        print_examples_every=print_examples_every,
+        print_examples_every=print_example_every,
         load_checkpoint=load_checkpoint,
         name=name
         )
