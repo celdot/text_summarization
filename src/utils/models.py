@@ -119,70 +119,56 @@ class AttnDecoderRNN(nn.Module):
         # Form the initial decoder input which consists of the start tokens concetanted with the 
         decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device)
         decoder_hidden = encoder_hidden # (1,B,H)
+
+        # Initialize the first contextualized hidden state
+        decoder_hidden_contextualized, _ = self.attention(encoder_outputs, decoder_hidden)
+        
         decoder_outputs = []
         attentions = []
 
-        if target_tensor is not None:
-            # Teacher forcing: embed all targets at once
-            inputs = self.embedding(target_tensor)  # (B, T, H)
-            inputs = self.dropout(inputs)
+        # if target_tensor is not None:
+        #     # Teacher forcing: embed all targets at once
+        #     inputs = self.embedding(target_tensor)  # (B, T, H)
+        #     inputs = self.dropout(inputs)
 
-            outputs, hidden = self.gru(inputs, decoder_hidden)  # (B, T, H), (1, B, H)
+        #     outputs, hidden = self.gru(inputs, decoder_hidden)  # (B, T, H), (1, B, H)
 
-            # Project encoder outputs
-            projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
+        #     # Project encoder outputs
+        #     projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
 
-            # Attention scores: batched dot product
-            attn_scores = torch.bmm(projected_encoder_outputs, outputs.transpose(1, 2))  # (B, S, T)
-            attn_weights = F.softmax(attn_scores, dim=1)  # (B, S, T)
+        #     # Attention scores: batched dot product
+        #     attn_scores = torch.bmm(projected_encoder_outputs, outputs.transpose(1, 2))  # (B, S, T)
+        #     attn_weights = F.softmax(attn_scores, dim=1)  # (B, S, T)
 
-            # Context: weighted sum
-            context = torch.bmm(projected_encoder_outputs.transpose(1, 2), attn_weights)  # (B, H, T)
-            context = context.transpose(1, 2)  # (B, T, H)
+        #     # Context: weighted sum
+        #     context = torch.bmm(projected_encoder_outputs.transpose(1, 2), attn_weights)  # (B, H, T)
+        #     context = context.transpose(1, 2)  # (B, T, H)
 
-            # Concatenate context and decoder output
-            combined = torch.cat((context, outputs), dim=2)  # (B, T, 2H)
+        #     # Concatenate context and decoder output
+        #     combined = torch.cat((context, outputs), dim=2)  # (B, T, 2H)
 
-            hidden_contextualized = torch.tanh(self.context_hidden(combined)) # (B,T,H)
-            output = self.out(hidden_contextualized)  # (B, T, V)
-            output = F.log_softmax(output, dim=-1)
+        #     hidden_contextualized = torch.tanh(self.context_hidden(combined)) # (B,T,H)
+        #     output = self.out(hidden_contextualized)  # (B, T, V)
+        #     output = F.log_softmax(output, dim=-1)
 
-            return output, hidden, attn_weights.transpose(1, 2)  # (B, T, V), (1, B, H), (B, T, S)
+        #     return output, hidden, attn_weights.transpose(1, 2)  # (B, T, V), (1, B, H), (B, T, S)
 
-        else:
-            # Inference: step by step
-            # Initialize the first contextualized hidden state
-            # Project encoder outputs
-            projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
+        # else:
+        # Inference: step by step
+        for _ in range(self.max_length):
+            decoder_output, decoder_hidden, decoder_hidden_contextualized, attn_weights = self.forward_step(
+                decoder_input, decoder_hidden, decoder_hidden_contextualized, encoder_outputs
+            )  # (B,1,V), (1,B,H), (B,1,H), (B,S,1) TODO: BUG FIX implement decoder_hidden_contextualized
+            decoder_outputs.append(decoder_output)
+            attentions.append(attn_weights)
 
-            # Attention scores: batched dot product (decoder_hidden = (1,B,H))
-            attn_scores = torch.bmm(projected_encoder_outputs, decoder_hidden.permute(1, 2, 0))  # (B, S, 1)
-            attn_weights = F.softmax(attn_scores, dim=1)  # (B, S, 1)
+            decoder_input = decoder_output.argmax(dim=-1) # (B,1)
 
-            # Context: weighted sum
-            context = torch.bmm(projected_encoder_outputs.transpose(1, 2), attn_weights)  # (B, H, 1)
-            context = context.transpose(1, 2)  # (B, 1, H)
+        decoder_outputs = torch.cat(decoder_outputs, dim=1)  #(B,T,V)
+        decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
+        attention_scores = torch.cat(attentions, dim=-1) # (B,S,T)
 
-            # Concatenate context and decoder output
-            combined = torch.cat((context, outputs), dim=2)  # (B, 1, 2H)
-
-            decoder_hidden_contextualized = torch.tanh(self.context_hidden(combined)) # (B,1,H)
-
-
-            for _ in range(self.max_length):
-                decoder_output, decoder_hidden, decoder_hidden_contextualized, attn_weights = self.forward_step(
-                    decoder_input, decoder_hidden, decoder_hidden_contextualized, encoder_outputs
-                )  # (B,1,V), (1,B,H), (B,1,H), (B,S,1) TODO: BUG FIX implement decoder_hidden_contextualized
-                decoder_outputs.append(decoder_output)
-                attentions.append(attn_weights)
-
-                decoder_input = decoder_output.argmax(dim=-1) # (B,1)
-
-            decoder_outputs = torch.cat(decoder_outputs, dim=1)  #(B,T,V)
-            decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
-            attention_scores = torch.cat(attentions, dim=-1) # (B,S,T)
-
-            return decoder_outputs, decoder_hidden, attention_scores.transpose(1, 2)  # (B, T, V), (1, B, H), (B, T, S)
+        return decoder_outputs, decoder_hidden, attention_scores.transpose(1, 2)  # (B, T, V), (1, B, H), (B, T, S)
     
     def forward_step(self, decoder_input, decoder_hidden, decoder_hidden_contextualized, encoder_outputs):
         '''Implements a single forward step of the deocder network with attention
@@ -200,21 +186,8 @@ class AttnDecoderRNN(nn.Module):
 
         outputs, hidden = self.gru(inputs, decoder_hidden)  # (B, 1, H), (1, B, H)
 
-        # Project encoder outputs
-        projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
-
-        # Attention scores: batched dot product
-        attn_scores = torch.bmm(projected_encoder_outputs, outputs.transpose(1, 2))  # (B, S, 1)
-        attn_weights = F.softmax(attn_scores, dim=1)  # (B, S, 1)
-
-        # Context: weighted sum
-        context = torch.bmm(projected_encoder_outputs.transpose(1, 2), attn_weights)  # (B, H, 1)
-        context = context.transpose(1, 2)  # (B, 1, H)
-
-        # Concatenate context and decoder output
-        combined = torch.cat((context, outputs), dim=2)  # (B, 1, 2H)
-
-        hidden_contextualized = torch.tanh(self.context_hidden(combined)) # (B,1,H)
+        hidden_contextualized, attn_weights = self.attention(encoder_outputs, hidden)
+        
         output = self.out(hidden_contextualized)  # (B, 1, V)
 
         # is done later
@@ -222,3 +195,29 @@ class AttnDecoderRNN(nn.Module):
         return output, hidden, hidden_contextualized, attn_weights # (B,1,V), (1,B,H), (B,1,H), (B,S,1)
         raise NotImplementedError("Forgot to implement the forward step for the deocder")
         pass
+
+    def attention(self, encoder_outputs, decoder_hidden):
+        '''Calculates the attention mechanism
+        Args:
+            encoder_outputs: size (B,S,2*H)
+            decoder_hidden: size (1,B,H) 
+        '''
+         # Project encoder outputs
+        projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
+
+        # Attention scores: batched dot product (decoder_hidden = (1,B,H))
+        attn_scores = torch.bmm(projected_encoder_outputs, decoder_hidden.permute(1, 2, 0))  # (B, S, 1)
+        attn_weights = F.softmax(attn_scores, dim=1)  # (B, S, 1)
+
+        # Context: weighted sum
+        context = torch.bmm(projected_encoder_outputs.transpose(1, 2), attn_weights)  # (B, H, 1)
+        context = context.transpose(1, 2)  # (B, 1, H)
+
+        # Concatenate context and decoder output (which is equal to the final hidden state in the step-by-step approach) (decoder_hidden = (1,B,H))
+        combined = torch.cat((context, decoder_hidden.permute(1, 0, 2)), dim=2)  # (B, 1, 2H)
+
+        decoder_hidden_contextualized = torch.tanh(self.context_hidden(combined)) # (B,1,H)
+
+        return decoder_hidden_contextualized, attn_weights
+        
+
