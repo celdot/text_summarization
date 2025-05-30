@@ -82,10 +82,10 @@ def get_data_distribution(df, figures_dir, dataset_name):
     headline_word_count = []
 
     for i in df['text']:
-      text_word_count.append(len(i.split()))
+        text_word_count.append(len(i.split()))
 
     for i in df['summary']:
-      headline_word_count.append(len(i.split()))
+        headline_word_count.append(len(i.split()))
 
     ax[0].hist(text_word_count, bins=50)
     ax[0].set_title("Text")
