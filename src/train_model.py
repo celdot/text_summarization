@@ -142,6 +142,28 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
 
     return compute_metrics(predictions, targets, n1=1, n2=2)
 
+def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_decoding_test=5):
+    """
+    Runs inference on the model and prints the predictions.
+    """
+    encoder.eval()
+    decoder.eval()
+    count_test = 0
+    random_list = random.sample(range(len(dataloader)), nb_decoding_test)
+    with torch.no_grad():
+        for i, data in enumerate(dataloader):
+            if i in random_list:
+                input_tensor, target_tensor = data
+                decoded_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
+                print('Input: {}'.format(decode_data(input_tensor[0], index2word, EOS_token)))
+                print('Target: {}'.format(decode_data(target_tensor[0], index2word, EOS_token)))
+                print('Predicted: {}'.format(decoded_words))
+                print('-----------------------------------')
+                count_test += 1
+            if count_test == nb_decoding_test:
+                break
+            print('-----------------------------------')
+
 def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
           decoder_optimizer, criterion):
 
@@ -238,21 +260,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
 
         if epoch % print_examples_every == 0:
             # Get a random sample from the validation set
-            nb_decoding_test = 5
-            count_test = 0
-            random_list = random.sample(range(len(val_dataloader)), nb_decoding_test)
-            for i, data in enumerate(val_dataloader):
-                if i in random_list:
-                    input_tensor, target_tensor = data
-                    decoded_words = make_predictions(encoder, decoder, input_tensor, index2words, EOS_token)
-                    print('Input: {}'.format(decode_data(input_tensor[0], index2words, EOS_token)))
-                    print('Target: {}'.format(decode_data(target_tensor[0], index2words, EOS_token)))
-                    print('Predicted: {}'.format(decoded_words))
-                    print('-----------------------------------')
-                    count_test += 1
-                if count_test == nb_decoding_test:
-                    break
-            print('-----------------------------------')
+            inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5)
 
         # Plot loss progress
         if epoch % plot_every == 0:
@@ -350,6 +358,7 @@ def main(root_dir,
     decoder.load_state_dict(checkpoint['de'])
 
     # Test the model
+    print('Evaluating the model on the test set...')
     test_loss = evaluate_loss(test_dataloader, encoder, decoder, criterion)
     print('Test loss: {:.4f}'.format(test_loss))
 
@@ -360,22 +369,8 @@ def main(root_dir,
         print('{}: {:.4f}'.format(f"{key} score", metrics[key]))
     print('-----------------------------------')
     # Get a random sample from the test set
-    nb_decoding_test = 5
-    count_test = 0
-    random_list = random.sample(range(len(test_dataloader)), nb_decoding_test)
-    for i, data in enumerate(test_dataloader):
-        if i in random_list:
-            input_tensor, target_tensor = data
-            decoded_words = make_predictions(encoder, decoder, input_tensor, feature_tokenizer.index2word, EOS_token)
-            print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index2word, EOS_token)))
-            print('Target: {}'.format(decode_data(target_tensor[0], feature_tokenizer.index2word, EOS_token)))
-            print('Predicted: {}'.format(decoded_words))
-            print('-----------------------------------')
-            count_test += 1
-        if count_test == nb_decoding_test:
-            break
-    print('-----------------------------------')
-
+    inference_testing(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, nb_decoding_test=5)
+            
 if __name__ == "__main__":
     # Argparse command line arguments
     parser = argparse.ArgumentParser(description='Train a Seq2Seq model with attention.')
