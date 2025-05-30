@@ -154,7 +154,7 @@ class AttnDecoderRNN(nn.Module):
             for _ in range(self.max_length):
                 decoder_output, decoder_hidden, attn_weights = self.forward_step(
                     decoder_input, decoder_hidden, encoder_outputs
-                )
+                ) # TODO: BUG FIX NEEDED
                 decoder_outputs.append(decoder_output)
                 attentions.append(attn_weights)
 
