@@ -101,7 +101,7 @@ def compute_metrics(predictions, targets, n1=1, n2=2):
     metrics = {}
     rouge_metrics = Rouge(variants=["L", n1, n2], multiref="best")
     
-    metrics["bleu"] = bleu_score(predictions, targets, n_gram=n1)
+    metrics["BLEU"] = bleu_score(predictions, targets, n_gram=n1)
 
     list_predictions = []
     list_targets = []
@@ -235,12 +235,14 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             # Get a random sample from the validation set
             nb_decoding_test = 5
             count_test = 0
-            random_list = random.sample(range(len(train_dataloader)), nb_decoding_test)
-            for i, data in enumerate(train_dataloader):
+            random_list = random.sample(range(len(val_dataloader)), nb_decoding_test)
+            for i, data in enumerate(val_dataloader):
                 if i in random_list:
                     input_tensor, target_tensor = data
+                    decoded_words = make_predictions(encoder, decoder, input_tensor, index2words, EOS_token)
                     print('Input: {}'.format(decode_data(input_tensor[0], index2words, EOS_token)))
                     print('Target: {}'.format(decode_data(target_tensor[0], index2words, EOS_token)))
+                    print('Predicted: {}'.format(decoded_words))
                     print('-----------------------------------')
                     count_test += 1
                 if count_test == nb_decoding_test:
@@ -353,15 +355,20 @@ def main(root_dir,
         print('{}: {:.4f}'.format(f"{key} score", metrics[key]))
     print('-----------------------------------')
     # Get a random sample from the test set
-    index = random.randint(0, len(test_dataloader) - 1)
+    nb_decoding_test = 5
+    count_test = 0
+    random_list = random.sample(range(len(test_dataloader)), nb_decoding_test)
     for i, data in enumerate(test_dataloader):
-        if i == index:
+        if i in random_list:
             input_tensor, target_tensor = data
+            decoded_words = make_predictions(encoder, decoder, input_tensor, feature_tokenizer.index2word, EOS_token)
+            print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index2word, EOS_token)))
+            print('Target: {}'.format(decode_data(target_tensor[0], feature_tokenizer.index2word, EOS_token)))
+            print('Predicted: {}'.format(decoded_words))
+            print('-----------------------------------')
+            count_test += 1
+        if count_test == nb_decoding_test:
             break
-    decoded_words, = make_predictions(encoder, decoder, input_tensor, feature_tokenizer.index2word, EOS_token)
-    print('Input: {}'.format(decode_data(input_tensor[0], feature_tokenizer.index2word, EOS_token)))
-    print('Target: {}'.format(decode_data(target_tensor[0], feature_tokenizer.index2word, EOS_token)))
-    print('Predicted: {}'.format(decoded_words))
     print('-----------------------------------')
 
 if __name__ == "__main__":
