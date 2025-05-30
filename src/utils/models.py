@@ -84,14 +84,11 @@ class AttnDecoderRNN(nn.Module):
         '''
         
         # 1. Embed the decoder input and concatenate the contextualized hidden
-        # print("decoder_input.shape:", decoder_input.shape)
         inputs = self.embedding(decoder_input)
-        # print("inputs.shape:", inputs.shape)
-        # print("decoder_hidden_contextualized.shape:", decoder_hidden_contextualized.shape)
         inputs = torch.cat((inputs, decoder_hidden_contextualized), dim=2) # (B,1,2H)
         inputs = self.dropout(inputs)
 
-        outputs, hidden = self.gru(inputs, decoder_hidden)  # (B, 1, H), (1, B, H)
+        _, hidden = self.gru(inputs, decoder_hidden)  # (B, 1, H), (1, B, H)
 
         hidden_contextualized, attn_weights = self.attention(encoder_outputs, hidden)
         
