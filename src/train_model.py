@@ -167,9 +167,16 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
     return total_loss / len(dataloader)
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
-          index2words, EOS_token, save_directory, figures_dir,
-          n_epochs= 50, learning_rate=0.001, weight_decay=1e-5,
-          print_every=100, plot_every=100, save_every=100, print_examples_every=5):
+          index2words, EOS_token, save_directory, figures_dir, optimizer_hyperparams,
+          print_hyperparams):
+    
+    learning_rate = optimizer_hyperparams['learning_rate']
+    weight_decay = optimizer_hyperparams['weight_decay']
+    n_epochs = optimizer_hyperparams['n_epochs']
+    
+    print_every = print_hyperparams['print_every']
+    plot_every = print_hyperparams['plot_every']
+    print_examples_every = print_hyperparams['print_examples_every']
 
     # Initializations
     print('Initializing ...')
@@ -252,19 +259,11 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
 
 def main(root_dir,
-    load_checkpoint = False,     
-    hidden_size = 128,
+    model_hyperparams,
+    optimizer_hyperparams,
+    print_hyperparams,
+    load_checkpoint = False,
     name = "WikiHow",
-    max_length = 50,
-    lr = 0.001,
-    weight_decay = 1e-4,
-    batch_size = 32,
-    num_workers = 4,
-    n_epochs = 50,
-    print_every = 10,
-    plot_every = 10,
-    save_every = 10,
-    print_examples_every=5,
     ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
@@ -282,6 +281,12 @@ def main(root_dir,
 
     os.makedirs(save_dir, exist_ok=True)
     os.makedirs(figures_dir, exist_ok=True)
+    
+    # Get the hyperparameters
+    batch_size = optimizer_hyperparams['batch_size']
+    # num_workers = optimizer_hyperparams['num_workers']
+    max_length = model_hyperparams['max_length']
+    hidden_size = model_hyperparams['hidden_size']
 
     # Load the dataset
     X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"))
@@ -289,7 +294,7 @@ def main(root_dir,
     X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
     y_train = torch.load(os.path.join(dataset_dir, "y_train.pt"))
     y_val = torch.load(os.path.join(dataset_dir, "y_val.pt"))
-    y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))    
+    y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))
 
     train_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(X_train, y_train),
@@ -330,8 +335,7 @@ def main(root_dir,
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           feature_tokenizer.index2word, EOS_token, save_dir, figures_dir,
-          learning_rate=lr, weight_decay=weight_decay, n_epochs=n_epochs,
-          print_every=print_every, plot_every=plot_every, save_every=save_every, print_examples_every=print_examples_every)
+          optimizer_hyperparams, print_hyperparams)
 
     # Load the best model
     checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
@@ -375,6 +379,7 @@ if __name__ == "__main__":
     parser.add_argument('--print_every', type=int, default=10, help='Print every n epochs')
     parser.add_argument('--plot_every', type=int, default=10, help='Plot every n epochs')
     parser.add_argument('--save_every', type=int, default=10, help='Save every n epochs')
+    parser.add_argument('--examples_every', type=int, default=5, help='Print examples every n epochs')
     parser.add_argument('--load_checkpoint', action='store_true', help='Load the best checkpoint if it exists')
     
     args = parser.parse_args()
@@ -392,17 +397,31 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     num_workers = args.num_workers
     load_checkpoint = args.load_checkpoint
+    print_examples_every = args.print_examples_every
+    
+    optimizer_hyperparams = {
+        'learning_rate': lr,
+        'weight_decay': weight_decay,
+        'n_epochs': n_epochs,
+        'batch_size': batch_size,
+        'num_workers': num_workers
+    }
+    
+    model_hyperparams = {
+        'hidden_size': hidden_size,
+        'max_length': max_length
+    }
+    
+    print_hyperparams = {
+        'print_every': print_every,
+        'plot_every': plot_every,
+        'print_examples_every': print_examples_every
+    }
     
     main(root_dir = root_dir,
-         load_checkpoint=load_checkpoint,
-         hidden_size=hidden_size,
-         name=name,
-         max_length=max_length,
-         lr=lr,
-         weight_decay=weight_decay,
-         batch_size = batch_size,
-         num_workers = num_workers, 
-         n_epochs=n_epochs,
-         print_every=print_every,
-         plot_every=plot_every,
-         save_every=save_every)
+        model_hyperparams=model_hyperparams,
+        optimizer_hyperparams=optimizer_hyperparams,
+        print_hyperparams=print_hyperparams,
+        load_checkpoint=load_checkpoint,
+        name=name
+        )
