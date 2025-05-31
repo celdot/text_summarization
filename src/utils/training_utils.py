@@ -29,6 +29,7 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
     ax[1].set_title('Validation Metrics')
     # Put the legend below the plot, centered, with 2 columns
     ax[1].legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2)
+    plt.tight_layout()
     plt.savefig(os.path.join(figures_dir, 'metrics.png'))
     plt.close(fig)
 
