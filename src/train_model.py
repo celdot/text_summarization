@@ -55,7 +55,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, checkpoint_path, figures_dir, optimizer_hyperparams,
-          print_examples_every, saved_metrics):
+          saved_metrics, print_examples_every, tuning):
     
     learning_rate = optimizer_hyperparams['learning_rate']
     weight_decay = optimizer_hyperparams['weight_decay']
@@ -70,14 +70,11 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     plot_val_metrics = saved_metrics.get('val_metrics')
 
     # Initialize TensorBoard
-    writer = SummaryWriter(log_dir='tensorboard_logs')
+    if not tuning:
+        writer = SummaryWriter(log_dir='tensorboard_logs')
 
     # Initializations
     print('Initializing ...')
-    print_train_loss_total = 0
-    plot_train_loss_total = 0
-    print_val_loss_total = 0
-    plot_val_loss_total = 0
     no_improvement_count = 0
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
@@ -86,15 +83,12 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     print("Training...")
     for epoch in range(start_epoch, n_epochs + 1):
         training_loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
-        print_train_loss_total += training_loss
-        plot_train_loss_total += training_loss
 
         val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
-        print_val_loss_total += val_loss
-        plot_val_loss_total += val_loss
 
-        writer.add_scalar('Loss/Train', training_loss, epoch)
-        writer.add_scalar('Loss/Validation', val_loss, epoch)
+        if not tuning:
+            writer.add_scalar('Loss/Train', training_loss, epoch)
+            writer.add_scalar('Loss/Validation', val_loss, epoch)
 
         if val_loss < best_val_loss:
             if os.path.exists(checkpoint_path):
@@ -116,50 +110,35 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 print(f"Early stopping triggered at epoch {epoch}")
                 break
 
-        print('Epoch: {}; Avg train loss: {:.4f}; Avg val loss: {:.4f}.'.format(
-                epoch, print_train_loss_total, print_val_loss_total))
+        if not tuning:
+            print('Epoch: {}; Avg train loss: {:.4f}; Avg val loss: {:.4f}.'.format(
+                epoch, training_loss, val_loss))
+            
+            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
+            for metric_name in plot_val_metrics.keys():
+                plot_val_metrics[metric_name].append(val_metrics[metric_name])
+            print_metrics(val_metrics, writer)
 
-        val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
-        for metric_name in plot_val_metrics.keys():
-            plot_val_metrics[metric_name].append(val_metrics[metric_name])
-        print_metrics(val_metrics, writer)
+            if epoch % print_examples_every == 0:
+                inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5, writer=writer)
 
-        print_train_loss_total = 0
-        print_val_loss_total = 0
+            plot_train_losses.append(training_loss)
+            plot_val_losses.append(val_loss)
 
-        if epoch % print_examples_every == 0:
-            inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5, writer=writer)
-
-        plot_train_losses.append(plot_train_loss_total)
-        plot_val_losses.append(plot_val_loss_total)
-        plot_train_loss_total = 0
-        plot_val_loss_total = 0
-
-    writer.close()
-    plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
-
-def main(root_dir,
-    model_hyperparams,
-    optimizer_hyperparams,
-    print_examples_every,
-    load_checkpoint = False,
-    name = "WikiHow",
-    ):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(device)
-
-    # Random seed for reproducibility
-    random.seed(5719)
-    np.random.seed(5719)
-    torch.manual_seed(5719)
-    torch.use_deterministic_algorithms(False)
-
+    if not tuning:
+        writer.close()
+        plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
+        
+def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hyperparams,
+                  optimizer_hyperparams, print_examples_every, tuning,
+                  load_checkpoint=False):
+    """
+    Main training loop for the Seq2Seq model with attention.
+    """
     # Get directories
     dataset_dir = os.path.join(root_dir, 'data', name)
-    save_dir = os.path.join(root_dir, 'checkpoints', name)
     figures_dir = os.path.join(root_dir, 'figures', name)
 
-    os.makedirs(save_dir, exist_ok=True)
     os.makedirs(figures_dir, exist_ok=True)
     
     # Get the hyperparameters
@@ -171,35 +150,21 @@ def main(root_dir,
     # Load the dataset
     X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"))
     X_val = torch.load(os.path.join(dataset_dir, "x_val.pt"))
-    X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
     y_train = torch.load(os.path.join(dataset_dir, "y_train.pt"))
     y_val = torch.load(os.path.join(dataset_dir, "y_val.pt"))
-    y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))
 
     train_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(X_train, y_train),
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers,
     )
     val_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(X_val, y_val),
         batch_size=batch_size,
         shuffle=True,
-        num_workers=num_workers,
-    )
-    test_dataloader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(X_test, y_test),
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
     )
 
-    # Load the vocabulary
-    print("Loading tokenizer")
-    with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
-            feature_tokenizer = pickle.load(handle)
-
+    index2words = feature_tokenizer.index2word
     num_words_text = max(feature_tokenizer.word2index.values()) + 1
     EOS_token = feature_tokenizer.word2index.get("EOS", 2)
 
@@ -214,7 +179,6 @@ def main(root_dir,
     plot_val_losses = []
     best_val_loss = float('inf')
     plot_val_metrics = {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []}
-    checkpoint_path = os.path.join(save_dir, 'best_checkpoint.tar')
 
     if load_checkpoint:
         print("Loading checkpoint...")
@@ -237,8 +201,27 @@ def main(root_dir,
 
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
-      feature_tokenizer.index2word, EOS_token, checkpoint_path, figures_dir,
-      optimizer_hyperparams, print_examples_every, saved_metrics)
+      index2words, EOS_token, checkpoint_path, figures_dir,
+      optimizer_hyperparams, saved_metrics, print_examples_every, tuning)
+        
+def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path):
+    dataset_dir = os.path.join(root_dir, 'data', name)
+    
+    X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
+    y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))
+    
+    test_dataloader = torch.utils.data.DataLoader(
+        torch.utils.data.TensorDataset(X_test, y_test),
+        batch_size=batch_size,
+        shuffle=True,
+    )
+
+    num_words_text = max(feature_tokenizer.word2index.values()) + 1
+    EOS_token = feature_tokenizer.word2index.get("EOS", 2)
+    
+    encoder = EncoderRNN(num_words_text, hidden_size).to(device)
+    decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
+    criterion = nn.NLLLoss(ignore_index=0)
 
     # Load the best model
     checkpoint = torch.load(checkpoint_path)
@@ -255,7 +238,44 @@ def main(root_dir,
     print_metrics(metrics)
     # Get a random sample from the test set
     inference_testing(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, nb_decoding_test=5)
+
+def main(root_dir,
+    model_hyperparams,
+    optimizer_hyperparams,
+    print_examples_every,
+    tuning,
+    load_checkpoint = False,
+    name = "WikiHow",
+    ):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
+
+    # Random seed for reproducibility
+    random.seed(5719)
+    np.random.seed(5719)
+    torch.manual_seed(5719)
+    torch.use_deterministic_algorithms(False)
     
+    dataset_dir = os.path.join(root_dir, 'data', name)
+    save_dir = os.path.join(root_dir, 'checkpoints', name)
+    os.makedirs(save_dir, exist_ok=True)
+    checkpoint_path = os.path.join(save_dir, 'best_checkpoint.tar')
+    
+    # Load the vocabulary
+    print("Loading tokenizer")
+    with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
+            feature_tokenizer = pickle.load(handle)
+            
+    training_loop(
+        root_dir=root_dir, checkpoint_path=checkpoint_path,
+        feature_tokenizer=feature_tokenizer, device=device, name=name,
+        model_hyperparams=model_hyperparams,
+        optimizer_hyperparams=optimizer_hyperparams,
+        print_examples_every=print_examples_every,
+        tuning=tuning, load_checkpoint=load_checkpoint)
+
+    evaluate(root_dir=root_dir, name=name, device=device, feature_tokenizer=feature_tokenizer, checkpoint_path=checkpoint_path)
+
 def objective(root_dir, trial):
     # Define hyperparameter search space
     hidden_size = trial.suggest_categorical('hidden_size', [64, 128, 256])
@@ -284,17 +304,35 @@ def objective(root_dir, trial):
     trial_dir = os.path.join(root_dir, 'parameters_tuning', trial_name)
 
     os.makedirs(trial_dir, exist_ok=True)
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(device)
 
+    # Random seed for reproducibility
+    random.seed(5719)
+    np.random.seed(5719)
+    torch.manual_seed(5719)
+    torch.use_deterministic_algorithms(False)
+    
+    dataset_dir = os.path.join(root_dir, 'data', name)
+    save_dir = os.path.join(root_dir, 'checkpoints', name)
+    os.makedirs(save_dir, exist_ok=True)
+    checkpoint_path = os.path.join(save_dir, 'best_checkpoint.tar')
+    
+    # Load the vocabulary
+    print("Loading tokenizer")
+    with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
+            feature_tokenizer = pickle.load(handle)
+    
     # Run training (validation loss is used as the objective)
     try:
-        main(
-            root_dir=root_dir,
-            model_hyperparams=model_hyperparams,
-            optimizer_hyperparams=optimizer_hyperparams,
-            print_examples_every=1000,
-            load_checkpoint=False,
-            name=name + f"_{trial_name}"
-        )
+        training_loop(
+        root_dir=root_dir, checkpoint_path=checkpoint_path,
+        feature_tokenizer=feature_tokenizer, device=device, name=name,
+        model_hyperparams=model_hyperparams,
+        optimizer_hyperparams=optimizer_hyperparams,
+        print_examples_every=1000,
+        tuning=True, load_checkpoint=False)
 
         # Load best checkpoint to get best val loss
         checkpoint_path = os.path.join(trial_dir, "checkpoints", name + f"_{trial_name}", "best_checkpoint.tar")
@@ -356,6 +394,7 @@ if __name__ == "__main__":
     
     main(root_dir = root_dir,
         model_hyperparams=model_hyperparams,
+        tuning = hyp_tuning,
         optimizer_hyperparams=optimizer_hyperparams,
         print_examples_every=print_example_every,
         load_checkpoint=load_checkpoint,
