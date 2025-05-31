@@ -79,3 +79,16 @@ def main(root_dir, name, hidden_size, max_length, input_tensor):
                             index2word=feature_tokenizer.index2word)
 
     print("Summary:", summary)
+    
+if __name__ == "__main__":
+    # Ask for input tensor from the user
+    root_dir = Path.cwd().parent
+    hidden_size = 128
+    max_length = 50
+    
+    name = 'WikiHow'
+    while True:
+        input_tensor = input("Enter the text to summarize (or type 'exit' to quit): ")
+        main(root_dir, name, hidden_size, max_length, input_tensor)
+        if input_tensor.lower() == 'exit':
+            break
