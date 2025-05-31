@@ -95,7 +95,11 @@ def compute_metrics(predictions, targets, n1=1, n2=2):
     predictions = [pred.replace('SOS', '').replace('EOS', '').strip() for pred in predictions]
     targets = [target.replace('SOS', '').replace('EOS', '').strip() for target in targets]
     
-    metrics["BLEU"] = bleu_score(predictions, targets, n_gram=n1)
+    try:
+        metrics["BLEU"] = bleu_score(predictions, targets, n_gram=n1)
+    except ValueError as e:
+        print(f"Warning: BLEU score calculation skipped due to: {e}")
+        metrics["BLEU"] = torch.tensor(0.0)
 
     list_predictions = []
     list_targets = []
