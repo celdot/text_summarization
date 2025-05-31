@@ -56,7 +56,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
     return total_loss / len(dataloader)
 
 
-def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
+def training_loop(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, checkpoint_path, figures_dir, optimizer_hyperparams,
           saved_metrics, print_examples_every, tuning):
     
@@ -84,7 +84,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     print("Training...")
-    for epoch in range(start_epoch, n_epochs + 1):
+    for epoch in tqdm(range(start_epoch, n_epochs + 1)):
         training_loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
 
         val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
@@ -130,7 +130,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
         writer.close()
         plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
         
-def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hyperparams,
+def train(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hyperparams,
                   optimizer_hyperparams, print_examples_every, tuning,
                   load_checkpoint=False):
     """
@@ -201,7 +201,7 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
     }
 
     # Train the model
-    train(train_dataloader, val_dataloader, encoder, decoder, criterion,
+    training_loop(train_dataloader, val_dataloader, encoder, decoder, criterion,
       index2words, EOS_token, checkpoint_path, figures_dir,
       optimizer_hyperparams, saved_metrics, print_examples_every, tuning)
         
@@ -273,7 +273,7 @@ def main(root_dir,
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
             feature_tokenizer = pickle.load(handle)
             
-    training_loop(
+    train(
         root_dir=root_dir, checkpoint_path=checkpoint_path,
         feature_tokenizer=feature_tokenizer, device=device, name=name,
         model_hyperparams=model_hyperparams,
@@ -331,7 +331,7 @@ def objective(root_dir, name, trial):
     try:
         checkpoint_path = os.path.join(trial_dir, "checkpoints", trial_name, "best_checkpoint.tar")
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
-        training_loop(
+        train(
         root_dir=root_dir, checkpoint_path=checkpoint_path,
         feature_tokenizer=feature_tokenizer, device=device, name=name,
         model_hyperparams=model_hyperparams,
