@@ -120,8 +120,8 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 epoch, print_train_loss_total, print_val_loss_total))
 
         val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
-        for metric_name, metric_value in plot_val_metrics.items():
-            plot_val_metrics[metric_name].append(metric_value)
+        for metric_name in plot_val_metrics.keys():
+            plot_val_metrics[metric_name].append(val_metrics[metric_name])
         print_metrics(val_metrics, writer)
 
         print_train_loss_total = 0
