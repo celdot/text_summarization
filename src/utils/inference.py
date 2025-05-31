@@ -1,5 +1,6 @@
 import os
 import pickle
+import time
 from pathlib import Path
 
 import torch
@@ -25,7 +26,7 @@ def summarize_on_cpu(input_tensor, encoder, decoder, EOS_token, index2word):
     Returns:
         str: Decoded summary sentence.
     """
-
+    start_time = time.time()
     # Move models to CPU and set to eval mode
     device = torch.device("cpu")
     encoder = encoder.to(device)
@@ -42,7 +43,15 @@ def summarize_on_cpu(input_tensor, encoder, decoder, EOS_token, index2word):
         # Get the predicted words
         _, topi = decoder_outputs.topk(1)
         decoded_words = decode_data(topi.squeeze(), index2word, EOS_token)
-
+        
+    # Split the decoded words into a list
+    decoded_words = decoded_words.split()
+    
+    # Remove SOS and EOS tokens from the decoded words
+    decoded_words = [word for word in decoded_words if word != 'SOS' and word != 'EOS']
+    
+    end_time = time.time()
+    print(f"Inference completed in {end_time - start_time:.2f} seconds.")
     return ' '.join(decoded_words)
 
 def main(root_dir, name, hidden_size, max_length, input_tensor):
@@ -70,16 +79,3 @@ def main(root_dir, name, hidden_size, max_length, input_tensor):
                             index2word=feature_tokenizer.index2word)
 
     print("Summary:", summary)
-
-if __name__ == "__main__":
-    # Ask for input tensor from the user
-    root_dir = Path.cwd().parent
-    hidden_size = 128
-    max_length = 50
-    
-    name = 'WikiHow'
-    while True:
-        input_tensor = input("Enter the text to summarize (or type 'exit' to quit): ")
-        main(root_dir, name, hidden_size, max_length, input_tensor)
-        if input_tensor.lower() == 'exit':
-            break
