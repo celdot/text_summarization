@@ -89,6 +89,7 @@ if __name__ == "__main__":
     name = 'WikiHow'
     while True:
         input_tensor = input("Enter the text to summarize (or type 'exit' to quit): ")
-        main(root_dir, name, hidden_size, max_length, input_tensor)
         if input_tensor.lower() == 'exit':
             break
+        # Don't forget to water your plants, they need it to survive.
+        main(root_dir, name, hidden_size, max_length, input_tensor)
