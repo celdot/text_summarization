@@ -284,21 +284,20 @@ def main(root_dir,
     evaluate(root_dir=root_dir, name=name, device=device, feature_tokenizer=feature_tokenizer,
              checkpoint_path=checkpoint_path, batch_size=optimizer_hyperparams['batch_size'], model_hyperparams=model_hyperparams)
 
-def objective(root_dir, trial):
+def objective(root_dir, name, trial):
     # Define hyperparameter search space
     hidden_size = trial.suggest_categorical('hidden_size', [64, 128, 256])
     max_length = trial.suggest_categorical('max_length', [30, 50, 100])
     learning_rate = trial.suggest_categorical('learning_rate', [1e-3, 1e-4, 1e-5])
     weight_decay = trial.suggest_categorical('weight_decay', [1e-4, 1e-5, 1e-6])
     early_stopping_patience = trial.suggest_categorical('early_stopping_patience', [3, 5, 10])
-    name = "WikiHow"
 
     # Wrap parameters
     optimizer_hyperparams = {
         'learning_rate': learning_rate,
         'weight_decay': weight_decay,
-        'n_epochs': 50,
-        'batch_size': 128,
+        'n_epochs': 3,
+        'batch_size': 32,
         'num_workers': 4,
         'early_stopping_patience': early_stopping_patience
     }
@@ -310,12 +309,11 @@ def objective(root_dir, trial):
 
     # Set a temp directory to avoid overwriting
     trial_name = f"trial_{trial.number}"
-    trial_dir = os.path.join(root_dir, 'parameters_tuning', trial_name)
+    trial_dir = os.path.join(root_dir, 'parameters_tuning', name)
 
     os.makedirs(trial_dir, exist_ok=True)
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(device)
 
     # Random seed for reproducibility
     random.seed(5719)
@@ -324,17 +322,15 @@ def objective(root_dir, trial):
     torch.use_deterministic_algorithms(False)
     
     dataset_dir = os.path.join(root_dir, 'data', name)
-    save_dir = os.path.join(root_dir, 'checkpoints', name)
-    os.makedirs(save_dir, exist_ok=True)
-    checkpoint_path = os.path.join(save_dir, 'best_checkpoint.tar')
     
     # Load the vocabulary
-    print("Loading tokenizer")
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
             feature_tokenizer = pickle.load(handle)
     
     # Run training (validation loss is used as the objective)
     try:
+        checkpoint_path = os.path.join(trial_dir, "checkpoints", trial_name, "best_checkpoint.tar")
+        os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         training_loop(
         root_dir=root_dir, checkpoint_path=checkpoint_path,
         feature_tokenizer=feature_tokenizer, device=device, name=name,
@@ -344,17 +340,16 @@ def objective(root_dir, trial):
         tuning=True, load_checkpoint=False)
 
         # Load best checkpoint to get best val loss
-        checkpoint_path = os.path.join(trial_dir, "checkpoints", name + f"_{trial_name}", "best_checkpoint.tar")
         checkpoint = torch.load(checkpoint_path)
         return checkpoint.get('best_val_loss', float('inf'))
 
     except Exception as e:
         print(f"Trial {trial.number} failed with error: {e}")
         return float('inf')
-    
-def tuning(root_dir, nb_trials):
+
+def tuning(root_dir, nb_trials, name):
     study = optuna.create_study(direction="minimize")
-    study.optimize(lambda trial: objective(root_dir, trial), n_trials=nb_trials)
+    study.optimize(lambda trial: objective(root_dir, name, trial), n_trials=nb_trials)
 
     print("Best trial:")
     trial = study.best_trial
@@ -364,7 +359,7 @@ def tuning(root_dir, nb_trials):
         print(f"{key}: {value}")
         
     # Save the study results
-    study_dir = os.path.join(root_dir, 'parameters_tuning', 'study_results')
+    study_dir = os.path.join(root_dir, 'parameters_tuning', name, 'study_results')
     os.makedirs(study_dir, exist_ok=True)
 
     # Save the optimization history
@@ -443,5 +438,5 @@ if __name__ == "__main__":
         )
     
     if hyp_tuning:
-        tuning(root_dir=root_dir, nb_trials=num_trials)
+        tuning(root_dir=root_dir, nb_trials=num_trials, name=name)
 
