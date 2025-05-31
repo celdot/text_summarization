@@ -53,6 +53,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
     return total_loss / len(dataloader)
 
+
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, checkpoint_path, figures_dir, optimizer_hyperparams,
           saved_metrics, print_examples_every, tuning):
@@ -86,10 +87,6 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
 
         val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
 
-        if not tuning:
-            writer.add_scalar('Loss/Train', training_loss, epoch)
-            writer.add_scalar('Loss/Validation', val_loss, epoch)
-
         if val_loss < best_val_loss:
             if os.path.exists(checkpoint_path):
                 os.remove(checkpoint_path)
@@ -111,6 +108,8 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 break
 
         if not tuning:
+            writer.add_scalar('Loss/Train', training_loss, epoch)
+            writer.add_scalar('Loss/Validation', val_loss, epoch)
             print('Epoch: {}; Avg train loss: {:.4f}; Avg val loss: {:.4f}.'.format(
                 epoch, training_loss, val_loss))
             
@@ -204,7 +203,10 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
       index2words, EOS_token, checkpoint_path, figures_dir,
       optimizer_hyperparams, saved_metrics, print_examples_every, tuning)
         
-def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path):
+def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_size, model_hyperparams):
+    """
+    Evaluate the model on the test set.
+    """
     dataset_dir = os.path.join(root_dir, 'data', name)
     
     X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
@@ -218,6 +220,9 @@ def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path):
 
     num_words_text = max(feature_tokenizer.word2index.values()) + 1
     EOS_token = feature_tokenizer.word2index.get("EOS", 2)
+    
+    hidden_size = model_hyperparams['hidden_size']
+    max_length = model_hyperparams['max_length']
     
     encoder = EncoderRNN(num_words_text, hidden_size).to(device)
     decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
@@ -274,7 +279,8 @@ def main(root_dir,
         print_examples_every=print_examples_every,
         tuning=tuning, load_checkpoint=load_checkpoint)
 
-    evaluate(root_dir=root_dir, name=name, device=device, feature_tokenizer=feature_tokenizer, checkpoint_path=checkpoint_path)
+    evaluate(root_dir=root_dir, name=name, device=device, feature_tokenizer=feature_tokenizer,
+             checkpoint_path=checkpoint_path, batch_size=optimizer_hyperparams['batch_size'], model_hyperparams=model_hyperparams)
 
 def objective(root_dir, trial):
     # Define hyperparameter search space
