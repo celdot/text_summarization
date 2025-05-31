@@ -262,16 +262,14 @@ def objective(root_dir, trial):
     max_length = trial.suggest_categorical('max_length', [30, 50, 100])
     learning_rate = trial.suggest_categorical('learning_rate', [1e-3, 1e-4, 1e-5])
     weight_decay = trial.suggest_categorical('weight_decay', [1e-4, 1e-5, 1e-6])
-    n_epochs = trial.suggest_categorical('n_epochs', [20, 50, 100])
     early_stopping_patience = trial.suggest_categorical('early_stopping_patience', [3, 5, 10])
-    batch_size = 32  # fixed or tune separately
 
     # Wrap parameters
     optimizer_hyperparams = {
         'learning_rate': learning_rate,
         'weight_decay': weight_decay,
-        'n_epochs': n_epochs,
-        'batch_size': batch_size,
+        'n_epochs': 50,
+        'batch_size': 128,
         'num_workers': 4,
         'early_stopping_patience': early_stopping_patience
     }
