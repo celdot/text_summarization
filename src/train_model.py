@@ -54,7 +54,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
     return total_loss / len(dataloader)
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
-          index2words, EOS_token, save_directory, figures_dir, optimizer_hyperparams,
+          index2words, EOS_token, checkpoint_path, figures_dir, optimizer_hyperparams,
           print_examples_every, saved_metrics):
     
     learning_rate = optimizer_hyperparams['learning_rate']
@@ -97,6 +97,8 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
         writer.add_scalar('Loss/Validation', val_loss, epoch)
 
         if val_loss < best_val_loss:
+            if os.path.exists(checkpoint_path):
+                os.remove(checkpoint_path)
             best_val_loss = val_loss
             no_improvement_count = 0
             torch.save({
@@ -107,7 +109,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 'val_losses': plot_val_losses,
                 'best_val_loss': best_val_loss,
                 'val_metrics': plot_val_metrics
-            }, os.path.join(save_directory, 'best_checkpoint.tar'))
+            }, checkpoint_path)
         else:
             no_improvement_count += 1
             if no_improvement_count >= early_stopping_patience:
@@ -162,7 +164,7 @@ def main(root_dir,
     
     # Get the hyperparameters
     batch_size = optimizer_hyperparams['batch_size']
-    # num_workers = optimizer_hyperparams['num_workers']
+    num_workers = optimizer_hyperparams['num_workers']
     max_length = model_hyperparams['max_length']
     hidden_size = model_hyperparams['hidden_size']
 
@@ -178,16 +180,19 @@ def main(root_dir,
         torch.utils.data.TensorDataset(X_train, y_train),
         batch_size=batch_size,
         shuffle=True,
+        num_workers=num_workers,
     )
     val_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(X_val, y_val),
         batch_size=batch_size,
         shuffle=True,
+        num_workers=num_workers,
     )
     test_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(X_test, y_test),
         batch_size=batch_size,
         shuffle=True,
+        num_workers=num_workers,
     )
 
     # Load the vocabulary
@@ -209,10 +214,11 @@ def main(root_dir,
     plot_val_losses = []
     best_val_loss = float('inf')
     plot_val_metrics = {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []}
+    checkpoint_path = os.path.join(save_dir, 'best_checkpoint.tar')
 
     if load_checkpoint:
         print("Loading checkpoint...")
-        checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
+        checkpoint = torch.load(checkpoint_path)
         encoder.load_state_dict(checkpoint['en'])
         decoder.load_state_dict(checkpoint['de'])
         start_epoch = checkpoint['epoch'] + 1  # Resume from next epoch
@@ -231,11 +237,11 @@ def main(root_dir,
 
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
-      feature_tokenizer.index2word, EOS_token, save_dir, figures_dir,
+      feature_tokenizer.index2word, EOS_token, checkpoint_path, figures_dir,
       optimizer_hyperparams, print_examples_every, saved_metrics)
 
     # Load the best model
-    checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
+    checkpoint = torch.load(checkpoint_path)
     encoder.load_state_dict(checkpoint['en'])
     decoder.load_state_dict(checkpoint['de'])
 
@@ -293,7 +299,7 @@ def objective(root_dir, trial):
         )
 
         # Load best checkpoint to get best val loss
-        checkpoint_path = os.path.join(trial_dir / "checkpoints", name + f"_{trial_name}", "best_checkpoint.tar")
+        checkpoint_path = os.path.join(trial_dir, "checkpoints", name + f"_{trial_name}", "best_checkpoint.tar")
         checkpoint = torch.load(checkpoint_path)
         return checkpoint.get('best_val_loss', float('inf'))
 
@@ -358,7 +364,6 @@ if __name__ == "__main__":
         name=name
         )
     
-    hyp_tuning = True
     if hyp_tuning:
         study = optuna.create_study(direction="minimize")
         study.optimize(lambda trial: objective(root_dir, trial), n_trials=20)
