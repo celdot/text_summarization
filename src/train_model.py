@@ -21,6 +21,8 @@ from pathlib import Path
 
 import numpy as np
 import optuna
+from optuna.visualization import (plot_optimization_history,
+                                  plot_param_importances, plot_slice)
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -289,6 +291,7 @@ def objective(root_dir, trial):
     learning_rate = trial.suggest_categorical('learning_rate', [1e-3, 1e-4, 1e-5])
     weight_decay = trial.suggest_categorical('weight_decay', [1e-4, 1e-5, 1e-6])
     early_stopping_patience = trial.suggest_categorical('early_stopping_patience', [3, 5, 10])
+    name = "WikiHow"
 
     # Wrap parameters
     optimizer_hyperparams = {
@@ -348,6 +351,36 @@ def objective(root_dir, trial):
     except Exception as e:
         print(f"Trial {trial.number} failed with error: {e}")
         return float('inf')
+    
+def tuning(root_dir, nb_trials):
+    study = optuna.create_study(direction="minimize")
+    study.optimize(lambda trial: objective(root_dir, trial), n_trials=nb_trials)
+
+    print("Best trial:")
+    trial = study.best_trial
+    print(f"Value (Validation Loss): {trial.value}")
+    print("Params: ")
+    for key, value in trial.params.items():
+        print(f"{key}: {value}")
+        
+    # Save the study results
+    study_dir = os.path.join(root_dir, 'parameters_tuning', 'study_results')
+    os.makedirs(study_dir, exist_ok=True)
+
+    # Save the optimization history
+    fig = plot_optimization_history(study)
+    fig.savefig(os.path.join(study_dir, 'optimization_history.png'))
+    plt.close(fig)
+
+    # Save the parameter importances
+    fig = plot_param_importances(study)
+    fig.savefig(os.path.join(study_dir, 'param_importances.png'))
+    plt.close(fig)
+
+    # Save the slice plot
+    fig = plot_slice(study)
+    fig.savefig(os.path.join(study_dir, 'slice_plot.png'))
+    plt.close(fig)
             
 if __name__ == "__main__":
     # Argparse command line arguments
@@ -365,6 +398,7 @@ if __name__ == "__main__":
     parser.add_argument('--print_example_every', type=int, default=5, help='Print examples every n epochs')
     parser.add_argument('--early_stopping_patience', type=int, default=5, help='Early stopping patience')
     parser.add_argument('--hyp_tuning', action='store_true', help='Run hyperparameter tuning with Optuna')
+    parser.add_argument('--num_trials', type=int, default=20, help='Number of trials for hyperparameter tuning')
     
     args = parser.parse_args()
     
@@ -381,7 +415,8 @@ if __name__ == "__main__":
     print_example_every = args.print_example_every
     early_stopping_patience = args.early_stopping_patience
     hyp_tuning = args.hyp_tuning
-    
+    num_trials = args.num_trials
+        
     optimizer_hyperparams = {
         'learning_rate': lr,
         'weight_decay': weight_decay,
@@ -408,15 +443,5 @@ if __name__ == "__main__":
         )
     
     if hyp_tuning:
-        study = optuna.create_study(direction="minimize")
-        study.optimize(lambda trial: objective(root_dir, trial), n_trials=20)
+        tuning(root_dir=root_dir, nb_trials=num_trials)
 
-        print("Best trial:")
-        trial = study.best_trial
-        print(f"Value (Validation Loss): {trial.value}")
-        print("Params: ")
-        for key, value in trial.params.items():
-            print(f"{key}: {value}")
-
-
-            
