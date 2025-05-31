@@ -3,8 +3,10 @@ import pickle
 from pathlib import Path
 
 import torch
-from models import AttnDecoderRNN, EncoderRNN
-from training_utils import decode_data
+
+from utils.models import AttnDecoderRNN, EncoderRNN
+from utils.processing import pad_sequences
+from utils.training_utils import decode_data
 
 
 def summarize_on_cpu(input_tensor, encoder, decoder, EOS_token, index2word):
@@ -30,8 +32,8 @@ def summarize_on_cpu(input_tensor, encoder, decoder, EOS_token, index2word):
     decoder = decoder.to(device)
     encoder.eval()
     decoder.eval()
-
-    input_tensor = input_tensor[0].unsqueeze(0).to(device)
+    
+    input_tensor = torch.tensor(input_tensor, dtype=torch.long).unsqueeze(0).to(device)  # Add batch dimension
     target_tensor = None
     with torch.no_grad():
         encoder_outputs, encoder_hidden = encoder(input_tensor)
@@ -60,6 +62,8 @@ def main(root_dir, name, hidden_size, max_length, input_tensor):
 
     # Tokenize the input tensor
     input_tensor = feature_tokenizer.texts_to_sequences([input_tensor])
+    input_tensor = pad_sequences(input_tensor, maxlen=130)
+    input_tensor = input_tensor[0]
     print("input_tensor idx:", input_tensor)
     summary = summarize_on_cpu(input_tensor, encoder, decoder,
                             EOS_token=feature_tokenizer.word2index['EOS'],

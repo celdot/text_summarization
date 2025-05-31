@@ -57,7 +57,7 @@ class AttnDecoderRNN(nn.Module):
         # Project encoder outputs
         projected_encoder_outputs = self.encoder_projection(encoder_outputs)  # (B, S, H)
 
-        # Attention scores: batched dot product (decoder_hidden = (1, B, H))
+        # Attention scores: batched dot product (decoder_hidden = (1,B,H))
         attn_scores = torch.bmm(projected_encoder_outputs, decoder_hidden.permute(1, 2, 0))  # (B, S, 1)
         attn_weights = F.softmax(attn_scores, dim=1)  # (B, S, 1)
 
@@ -65,8 +65,8 @@ class AttnDecoderRNN(nn.Module):
         context = torch.bmm(projected_encoder_outputs.transpose(1, 2), attn_weights)  # (B, H, 1)
         context = context.transpose(1, 2)  # (B, 1, H)
 
-        # Concatenate context and decoder output (which is equal to the final hidden state in the step-by-step approach) (decoder_hidden = (1, B, H))
-        combined = torch.cat((context, decoder_hidden.permute(1, 0, 2)), dim=2)  # (B, 1, 2H)
+        # Concatenate context and decoder output (which is equal to the final hidden state in the step-by-step approach) (decoder_hidden = (1,B,H))
+        combined = torch.cat((context, decoder_hidden.permute(1, 0, 2)), dim=2)  # (B, 1, 2*H)
 
         decoder_hidden_contextualized = torch.tanh(self.context_hidden(combined)) # (B, 1, H)
 
@@ -80,9 +80,15 @@ class AttnDecoderRNN(nn.Module):
             decoder_hidden_contextualized: size (B, 1, H)
             encoder_outputs: size (B, S, 2*H)
         '''
+        device = encoder_outputs.device  # Use encoder's device
+
+        decoder_input = decoder_input.to(device)
+        decoder_hidden = decoder_hidden.to(device)
+        decoder_hidden_contextualized = decoder_hidden_contextualized.to(device)
         
         # 1. Embed the decoder input and concatenate the contextualized hidden
         inputs = self.embedding(decoder_input)
+        inputs = inputs.to(device)
         inputs = torch.cat((inputs, decoder_hidden_contextualized), dim=2) # (B, 1, 2*H)
         inputs = self.dropout(inputs)
 
@@ -102,13 +108,14 @@ class AttnDecoderRNN(nn.Module):
             encoder_hidden: size (1, B, H)
             target_tensor: (B, T) # T = seq_length in this function
         '''
-        
+        device = encoder_outputs.device
         batch_size = encoder_outputs.size(0)
         T = target_tensor.size(1) if target_tensor is not None else self.max_length
 
-        # Form the initial decoder input which consists of the start tokens concatenated with the contextualized hidden state
+        # Form the initial decoder input which consists of the start tokens concatenated with the
+        # initial hidden state of the encoder
         decoder_input = torch.full((batch_size, 1), SOS_token, dtype=torch.long, device=device)
-        decoder_hidden = encoder_hidden # (1, B, H)
+        decoder_hidden = encoder_hidden.to(device) # (1, B, H)
 
         # Initialize the first contextualized hidden state
         decoder_hidden_contextualized, _ = self.attention(encoder_outputs, decoder_hidden)
@@ -125,12 +132,12 @@ class AttnDecoderRNN(nn.Module):
 
             # Use teacher forcing
             if target_tensor is not None:
-                decoder_input = target_tensor[:, t].unsqueeze(1)  # (B, 1)
+                decoder_input = target_tensor[:, t].unsqueeze(1).to(device)  # (B, 1)
             else:
                 decoder_input = decoder_output.argmax(dim=-1)  # (B, 1)
     
         decoder_outputs = torch.cat(decoder_outputs, dim=1)  # (B, T, V)
         decoder_outputs = F.log_softmax(decoder_outputs, dim=-1)
-        attention_scores = torch.cat(attentions, dim=-1)  # (B, T, S)
+        attention_scores = torch.cat(attentions, dim=-1)   # (B, T, S)
 
         return decoder_outputs, decoder_hidden, attention_scores.transpose(1, 2)  # (B, T, V), (1, B, H), (B, T, S)

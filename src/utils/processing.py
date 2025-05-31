@@ -47,7 +47,6 @@ class Tokenizer:
             sequence = [self.word2index.get(word, self.word2index.get("UNK")) for word in text.split()]
             sequences.append(sequence)
         return sequences
-
     
 def pad_sequences(sequences, maxlen):
     padded_sequences = []

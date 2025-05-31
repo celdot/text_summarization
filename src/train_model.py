@@ -20,6 +20,7 @@ from itertools import product
 from pathlib import Path
 
 import numpy as np
+import optuna
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -69,7 +70,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     plot_val_metrics = saved_metrics.get('val_metrics')
 
     # Initialize TensorBoard
-    writer = SummaryWriter(log_dir=os.path.join(figures_dir, 'tensorboard_logs'))
+    writer = SummaryWriter(log_dir='tensorboard_logs')
 
     # Initializations
     print('Initializing ...')
@@ -210,6 +211,7 @@ def main(root_dir,
     plot_val_metrics = {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []}
 
     if load_checkpoint:
+        print("Loading checkpoint...")
         checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'))
         encoder.load_state_dict(checkpoint['en'])
         decoder.load_state_dict(checkpoint['de'])
@@ -247,6 +249,57 @@ def main(root_dir,
     print_metrics(metrics)
     # Get a random sample from the test set
     inference_testing(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, nb_decoding_test=5)
+    
+def objective(root_dir, trial):
+    # Define hyperparameter search space
+    hidden_size = trial.suggest_categorical('hidden_size', [64, 128, 256])
+    max_length = trial.suggest_categorical('max_length', [30, 50, 100])
+    learning_rate = trial.suggest_categorical('learning_rate', [1e-3, 1e-4, 1e-5])
+    weight_decay = trial.suggest_categorical('weight_decay', [1e-4, 1e-5, 1e-6])
+    n_epochs = trial.suggest_categorical('n_epochs', [20, 50, 100])
+    early_stopping_patience = trial.suggest_categorical('early_stopping_patience', [3, 5, 10])
+    batch_size = 32  # fixed or tune separately
+
+    # Wrap parameters
+    optimizer_hyperparams = {
+        'learning_rate': learning_rate,
+        'weight_decay': weight_decay,
+        'n_epochs': n_epochs,
+        'batch_size': batch_size,
+        'num_workers': 4,
+        'early_stopping_patience': early_stopping_patience
+    }
+
+    model_hyperparams = {
+        'hidden_size': hidden_size,
+        'max_length': max_length
+    }
+
+    # Set a temp directory to avoid overwriting
+    trial_name = f"trial_{trial.number}"
+    trial_dir = os.path.join(root_dir, 'parameters_tuning', trial_name)
+
+    os.makedirs(trial_dir, exist_ok=True)
+
+    # Run training (validation loss is used as the objective)
+    try:
+        main(
+            root_dir=root_dir,
+            model_hyperparams=model_hyperparams,
+            optimizer_hyperparams=optimizer_hyperparams,
+            print_examples_every=1000,
+            load_checkpoint=False,
+            name=name + f"_{trial_name}"
+        )
+
+        # Load best checkpoint to get best val loss
+        checkpoint_path = os.path.join(trial_dir / "checkpoints", name + f"_{trial_name}", "best_checkpoint.tar")
+        checkpoint = torch.load(checkpoint_path)
+        return checkpoint.get('best_val_loss', float('inf'))
+
+    except Exception as e:
+        print(f"Trial {trial.number} failed with error: {e}")
+        return float('inf')
             
 if __name__ == "__main__":
     # Argparse command line arguments
@@ -263,6 +316,7 @@ if __name__ == "__main__":
     parser.add_argument('--load_checkpoint', action='store_true', help='Load the best checkpoint if it exists')
     parser.add_argument('--print_example_every', type=int, default=5, help='Print examples every n epochs')
     parser.add_argument('--early_stopping_patience', type=int, default=5, help='Early stopping patience')
+    parser.add_argument('--hyp_tuning', action='store_true', help='Run hyperparameter tuning with Optuna')
     
     args = parser.parse_args()
     
@@ -278,6 +332,7 @@ if __name__ == "__main__":
     load_checkpoint = args.load_checkpoint
     print_example_every = args.print_example_every
     early_stopping_patience = args.early_stopping_patience
+    hyp_tuning = args.hyp_tuning
     
     optimizer_hyperparams = {
         'learning_rate': lr,
@@ -304,13 +359,16 @@ if __name__ == "__main__":
         )
     
     hyp_tuning = True
-    param_grid = {
-        'hidden_size': [64, 128, 256],
-        'max_length': [30, 50, 100],
-        'learning_rate': [1e-3, 1e-4, 1e-5],
-        'weight_decay': [1e-4, 1e-5, 1e-6],
-        'n_epochs': [20, 50, 100],
-        'early_stopping_patience': [3, 5, 10],
-    }
+    if hyp_tuning:
+        study = optuna.create_study(direction="minimize")
+        study.optimize(lambda trial: objective(root_dir, trial), n_trials=20)
+
+        print("Best trial:")
+        trial = study.best_trial
+        print(f"Value (Validation Loss): {trial.value}")
+        print("Params: ")
+        for key, value in trial.params.items():
+            print(f"{key}: {value}")
+
 
             

@@ -14,8 +14,8 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
     plt.rcParams.update({'font.size': 22})
     fig, ax = plt.subplots(1, 2, figsize=(15, 5))
     # Plot training and validation losses
-    ax[0].plot(range(1, len(train_losses) - 1), train_losses, label='Training Loss')
-    ax[0].plot(range(1, len(val_losses) - 1), val_losses, label='Validation Loss')
+    ax[0].plot(range(1, len(train_losses) + 1), train_losses, label='Training Loss')
+    ax[0].plot(range(1, len(val_losses) + 1), val_losses, label='Validation Loss')
     ax[0].set_xlabel('Epochs')
     ax[0].set_ylabel('Loss')
     ax[0].set_title('Training and Validation Losses')
@@ -23,7 +23,7 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
 
     # Plot validation metrics
     for metric_name, metric_values in val_metrics.items():
-        ax[1].plot(range(1, len(metric_values) - 1), metric_values, label=metric_name)
+        ax[1].plot(range(1, len(metric_values) + 1), metric_values, label=metric_name)
     ax[1].set_xlabel('Epochs')
     ax[1].set_ylabel('Metric Value')
     ax[1].set_title('Validation Metrics')
@@ -168,3 +168,4 @@ def print_metrics(metrics, writer=None):
             writer.add_scalar(f'Metrics/{key}', metrics[key])
         print('{}: {:.4f}'.format(f"{key} score", metrics[key]))
     print('-----------------------------------')
+
