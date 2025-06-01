@@ -27,15 +27,17 @@ from torch.utils.tensorboard import SummaryWriter
 def train_epoch(
     dataloader, encoder, decoder, encoder_optimizer,
     decoder_optimizer, criterion, val_dataloader, iteration_counter,
-    log_every, writer, index2words, EOS_token,
+    log_every, print_examples_every, index2words, EOS_token,
     plot_train_losses, plot_val_losses, plot_val_metrics,
-    tuning, checkpoint_path, best_val_loss_ref, no_improvement_count_ref,
+    tuning, checkpoint_path, best_val_loss_ref, no_improvement_count,
     early_stopping_patience
 ):
     encoder.train()
     decoder.train()
 
     total_loss = 0
+    
+    early_stop = False
     for batch_idx, data in enumerate(tqdm(dataloader)):
         input_tensor, target_tensor = data
 
@@ -56,93 +58,87 @@ def train_epoch(
 
         total_loss += loss.item()
 
-        if iteration_counter[0] % log_every == 0:
+        if iteration_counter % log_every == 0:
             avg_train_loss = total_loss / (batch_idx + 1)
             val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
 
             plot_train_losses.append(avg_train_loss)
             plot_val_losses.append(val_loss)
 
-            if not tuning:
-                writer.add_scalar('Loss/Train', avg_train_loss, iteration_counter[0])
-                writer.add_scalar('Loss/Validation', val_loss, iteration_counter[0])
-
             # Early stopping & checkpointing
-            if val_loss < best_val_loss_ref[0]:
+            if val_loss < best_val_loss_ref:
                 if os.path.exists(checkpoint_path):
                     os.remove(checkpoint_path)
-                best_val_loss_ref[0] = val_loss
-                no_improvement_count_ref[0] = 0
+                best_val_loss_ref = val_loss
+                no_improvement_count = 0
                 torch.save({
-                    'iteration': iteration_counter[0],
+                    'iteration': iteration_counter,
                     'en': encoder.state_dict(),
                     'de': decoder.state_dict(),
                     'train_losses': plot_train_losses,
                     'val_losses': plot_val_losses,
-                    'best_val_loss': best_val_loss_ref[0],
+                    'best_val_loss': best_val_loss_ref,
                     'val_metrics': plot_val_metrics
                 }, checkpoint_path)
             else:
-                no_improvement_count_ref[0] += 1
-                if no_improvement_count_ref[0] >= early_stopping_patience:
-                    print(f"Early stopping triggered at iteration {iteration_counter[0]}")
-                    return True  # signal to stop training
+                no_improvement_count += 1
+                if no_improvement_count >= early_stopping_patience:
+                    print(f"Early stopping triggered at iteration {iteration_counter}")
+                    early_stop = True  # signal to stop training
 
             if not tuning:
                 val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
                 for metric_name in plot_val_metrics.keys():
                     plot_val_metrics[metric_name].append(val_metrics[metric_name])
 
-                print(f"[Iter {iteration_counter[0]}] Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
+                print(f"[Iter {iteration_counter}] Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
+                
+        if iteration_counter % print_examples_every == 0 and not tuning:
+            inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5)
 
-        iteration_counter[0] += 1
+        iteration_counter += 1
 
-    return False  
+    return early_stop
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, checkpoint_path, figures_dir, optimizer_hyperparams,
-          saved_metrics, print_examples_every, tuning):
+          saved_metrics, log_every, print_examples_every, tuning):
 
     learning_rate = optimizer_hyperparams['learning_rate']
     weight_decay = optimizer_hyperparams['weight_decay']
     n_epochs = optimizer_hyperparams['n_epochs']
     early_stopping_patience = optimizer_hyperparams["early_stopping_patience"]
 
-    start_epoch = saved_metrics.get('start_epoch')
+    iteration_counter = saved_metrics.get('start_epoch')
     plot_train_losses = saved_metrics.get('train_losses')
     plot_val_losses = saved_metrics.get('val_losses')
     best_val_loss = saved_metrics.get('best_val_loss')
     plot_val_metrics = saved_metrics.get('val_metrics')
 
-    writer = SummaryWriter(log_dir='tensorboard_logs') if not tuning else None
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    iteration_counter = [1]
-    best_val_loss_ref = [best_val_loss]
-    no_improvement_count_ref = [0]
-    log_every = 1000
+    no_improvement_count = 0
 
-    for epoch in range(start_epoch, n_epochs + 1):
+    for _ in range(1, n_epochs + 1):
         early_stop = train_epoch(
             train_dataloader, encoder, decoder,
             encoder_optimizer, decoder_optimizer, criterion,
-            val_dataloader, iteration_counter, log_every,
-            writer, index2words, EOS_token,
+            val_dataloader, iteration_counter, log_every, print_examples_every,
+            index2words, EOS_token,
             plot_train_losses, plot_val_losses, plot_val_metrics,
-            tuning, checkpoint_path, best_val_loss_ref,
-            no_improvement_count_ref, early_stopping_patience
+            tuning, checkpoint_path, best_val_loss,
+            no_improvement_count, early_stopping_patience
         )
 
         if early_stop:
             break
 
     if not tuning:
-        writer.close()
         plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
         
 def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hyperparams,
-                  optimizer_hyperparams, print_examples_every, tuning,
+                  optimizer_hyperparams, log_every, print_examples_every, tuning,
                   load_checkpoint=False):
     """
     Main training loop for the Seq2Seq model with attention.
@@ -203,8 +199,6 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
         plot_val_metrics = checkpoint.get('val_metrics', {
             "BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []
         })
-
-
         
     saved_metrics = {
         'start_epoch': start_epoch,
@@ -217,7 +211,7 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
       index2words, EOS_token, checkpoint_path, figures_dir,
-      optimizer_hyperparams, saved_metrics, print_examples_every, tuning)
+      optimizer_hyperparams, saved_metrics, log_every, print_examples_every, tuning)
         
 def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_size, model_hyperparams):
     """
@@ -262,6 +256,7 @@ def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_s
 def main(root_dir,
     model_hyperparams,
     optimizer_hyperparams,
+    log_every,
     print_examples_every,
     tuning,
     load_checkpoint = False,
@@ -291,6 +286,7 @@ def main(root_dir,
         feature_tokenizer=feature_tokenizer, device=device, name=name,
         model_hyperparams=model_hyperparams,
         optimizer_hyperparams=optimizer_hyperparams,
+        log_every=log_every,
         print_examples_every=print_examples_every,
         tuning=tuning, load_checkpoint=load_checkpoint)
 
@@ -350,7 +346,8 @@ def objective(root_dir, name, trial):
         feature_tokenizer=feature_tokenizer, device=device, name=name,
         model_hyperparams=model_hyperparams,
         optimizer_hyperparams=optimizer_hyperparams,
-        print_examples_every=1000,
+        log_every=100_000_000,
+        print_examples_every=100_000_000,
         tuning=True, load_checkpoint=False)
 
         # Load best checkpoint to get best val loss
@@ -388,6 +385,7 @@ if __name__ == "__main__":
     parser.add_argument('--n_epochs', type=int, default=50, help='Number of epochs')
     parser.add_argument('--load_checkpoint', action='store_true', help='Load the best checkpoint if it exists')
     parser.add_argument('--print_example_every', type=int, default=5, help='Print examples every n epochs')
+    parser.add_argument('--log_every', type=int, default=2000, help='Log training progress every n iterations')
     parser.add_argument('--early_stopping_patience', type=int, default=5, help='Early stopping patience')
     parser.add_argument('--hyp_tuning', action='store_true', help='Run hyperparameter tuning with Optuna')
     parser.add_argument('--num_trials', type=int, default=20, help='Number of trials for hyperparameter tuning')
@@ -408,6 +406,7 @@ if __name__ == "__main__":
     early_stopping_patience = args.early_stopping_patience
     hyp_tuning = args.hyp_tuning
     num_trials = args.num_trials
+    log_every = args.log_every
     
     optimizer_hyperparams = {
         'learning_rate': lr,
@@ -427,6 +426,7 @@ if __name__ == "__main__":
         model_hyperparams=model_hyperparams,
         tuning=hyp_tuning,
         optimizer_hyperparams=optimizer_hyperparams,
+        log_every=log_every,
         print_examples_every=print_example_every,
         load_checkpoint=load_checkpoint,
         name=name

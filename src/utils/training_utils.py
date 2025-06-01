@@ -13,12 +13,8 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every=2
     Plots the training/validation losses and metrics per iteration.
     Marks the best validation point and each epoch boundary.
     """
-    import os
-
-    import matplotlib.pyplot as plt
-
     plt.rcParams.update({'font.size': 22})
-    fig, ax = plt.subplots(1, 2, figsize=(18, 9))
+    _, ax = plt.subplots(1, 2, figsize=(18, 9))
 
     nb_ticks = 50
     x_ticks = np.arange(1, len(train_losses) + 1, nb_ticks)
@@ -28,6 +24,7 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every=2
     # Plot training and validation losses
     ax[0].plot(x_iters, train_losses, label='Training Loss')
     ax[0].plot(x_iters, val_losses, label='Validation Loss')
+    ax[0].set_xticks(x_ticks)
 
     # Mark best validation loss
     ax[0].axhline(y=val_losses[best_val_idx - 1], color='red', linestyle='--', label='Best Val Loss')
