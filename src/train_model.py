@@ -24,14 +24,19 @@ import optuna
 from torch.utils.tensorboard import SummaryWriter
 
 
-def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
-          decoder_optimizer, criterion):
-
+def train_epoch(
+    dataloader, encoder, decoder, encoder_optimizer,
+    decoder_optimizer, criterion, val_dataloader, iteration_counter,
+    log_every, writer, index2words, EOS_token,
+    plot_train_losses, plot_val_losses, plot_val_metrics,
+    tuning, checkpoint_path, best_val_loss_ref, no_improvement_count_ref,
+    early_stopping_patience
+):
     encoder.train()
     decoder.train()
 
     total_loss = 0
-    for data in tqdm(dataloader):
+    for batch_idx, data in enumerate(tqdm(dataloader)):
         input_tensor, target_tensor = data
 
         encoder_optimizer.zero_grad()
@@ -51,75 +56,86 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
         total_loss += loss.item()
 
-    return total_loss / len(dataloader)
+        if iteration_counter[0] % log_every == 0:
+            avg_train_loss = total_loss / (batch_idx + 1)
+            val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
+
+            plot_train_losses.append(avg_train_loss)
+            plot_val_losses.append(val_loss)
+
+            if not tuning:
+                writer.add_scalar('Loss/Train', avg_train_loss, iteration_counter[0])
+                writer.add_scalar('Loss/Validation', val_loss, iteration_counter[0])
+
+            # Early stopping & checkpointing
+            if val_loss < best_val_loss_ref[0]:
+                if os.path.exists(checkpoint_path):
+                    os.remove(checkpoint_path)
+                best_val_loss_ref[0] = val_loss
+                no_improvement_count_ref[0] = 0
+                torch.save({
+                    'iteration': iteration_counter[0],
+                    'en': encoder.state_dict(),
+                    'de': decoder.state_dict(),
+                    'train_losses': plot_train_losses,
+                    'val_losses': plot_val_losses,
+                    'best_val_loss': best_val_loss_ref[0],
+                    'val_metrics': plot_val_metrics
+                }, checkpoint_path)
+            else:
+                no_improvement_count_ref[0] += 1
+                if no_improvement_count_ref[0] >= early_stopping_patience:
+                    print(f"Early stopping triggered at iteration {iteration_counter[0]}")
+                    return True  # signal to stop training
+
+            if not tuning:
+                val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
+                for metric_name in plot_val_metrics.keys():
+                    plot_val_metrics[metric_name].append(val_metrics[metric_name])
+
+                print(f"[Iter {iteration_counter[0]}] Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
+
+        iteration_counter[0] += 1
+
+    return False  
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, checkpoint_path, figures_dir, optimizer_hyperparams,
           saved_metrics, print_examples_every, tuning):
-    
+
     learning_rate = optimizer_hyperparams['learning_rate']
     weight_decay = optimizer_hyperparams['weight_decay']
     n_epochs = optimizer_hyperparams['n_epochs']
     early_stopping_patience = optimizer_hyperparams["early_stopping_patience"]
-    
-    # Load saved metrics if available
+
     start_epoch = saved_metrics.get('start_epoch')
     plot_train_losses = saved_metrics.get('train_losses')
     plot_val_losses = saved_metrics.get('val_losses')
     best_val_loss = saved_metrics.get('best_val_loss')
     plot_val_metrics = saved_metrics.get('val_metrics')
 
-    # Initialize TensorBoard
-    if not tuning:
-        writer = SummaryWriter(log_dir='tensorboard_logs')
-
-    # Initializations
-    no_improvement_count = 0
-
+    writer = SummaryWriter(log_dir='tensorboard_logs') if not tuning else None
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
+    iteration_counter = [1]
+    best_val_loss_ref = [best_val_loss]
+    no_improvement_count_ref = [0]
+    log_every = 1000
+
     for epoch in range(start_epoch, n_epochs + 1):
-        training_loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
+        early_stop = train_epoch(
+            train_dataloader, encoder, decoder,
+            encoder_optimizer, decoder_optimizer, criterion,
+            val_dataloader, iteration_counter, log_every,
+            writer, index2words, EOS_token,
+            plot_train_losses, plot_val_losses, plot_val_metrics,
+            tuning, checkpoint_path, best_val_loss_ref,
+            no_improvement_count_ref, early_stopping_patience
+        )
 
-        val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
-
-        if val_loss < best_val_loss:
-            if os.path.exists(checkpoint_path):
-                os.remove(checkpoint_path)
-            best_val_loss = val_loss
-            no_improvement_count = 0
-            torch.save({
-                'epoch': epoch,
-                'en': encoder.state_dict(),
-                'de': decoder.state_dict(),
-                'train_losses': plot_train_losses,
-                'val_losses': plot_val_losses,
-                'best_val_loss': best_val_loss,
-                'val_metrics': plot_val_metrics
-            }, checkpoint_path)
-        else:
-            no_improvement_count += 1
-            if no_improvement_count >= early_stopping_patience:
-                print(f"Early stopping triggered at epoch {epoch}")
-                break
-
-        if not tuning:
-            writer.add_scalar('Loss/Train', training_loss, epoch)
-            writer.add_scalar('Loss/Validation', val_loss, epoch)
-            print('Epoch: {}; Avg train loss: {:.4f}; Avg val loss: {:.4f}.'.format(
-                epoch, training_loss, val_loss))
-            
-            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
-            for metric_name in plot_val_metrics.keys():
-                plot_val_metrics[metric_name].append(val_metrics[metric_name])
-            print_metrics(val_metrics, writer)
-
-            if epoch % print_examples_every == 0:
-                inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5, writer=writer)
-
-            plot_train_losses.append(training_loss)
-            plot_val_losses.append(val_loss)
+        if early_stop:
+            break
 
     if not tuning:
         writer.close()
@@ -180,11 +196,15 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
         checkpoint = torch.load(checkpoint_path)
         encoder.load_state_dict(checkpoint['en'])
         decoder.load_state_dict(checkpoint['de'])
-        start_epoch = checkpoint['epoch'] + 1  # Resume from next epoch
+        start_epoch = 1  # since we're tracking by iteration now
         plot_train_losses = checkpoint.get('train_losses', [])
         plot_val_losses = checkpoint.get('val_losses', [])
         best_val_loss = checkpoint.get('best_val_loss', float('inf'))
-        plot_val_metrics = checkpoint.get('val_metrics', {"BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []})
+        plot_val_metrics = checkpoint.get('val_metrics', {
+            "BLEU": [], "Rouge-L-F": [], "Rouge-1-F": [], "Rouge-2-F": []
+        })
+
+
         
     saved_metrics = {
         'start_epoch': start_epoch,

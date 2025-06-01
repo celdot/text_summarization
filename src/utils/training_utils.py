@@ -1,37 +1,73 @@
 import os
 import random
 
+import numpy as np
 import torch
 from ignite.metrics import Rouge
 from matplotlib import pyplot as plt
 from torcheval.metrics.functional import bleu_score
 
 
-def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
+def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every=2000, iterations_per_epoch=29409):
     """
-    Plots the training and validation losses.
+    Plots the training/validation losses and metrics per iteration.
+    Marks the best validation point and each epoch boundary.
     """
+    import os
+
+    import matplotlib.pyplot as plt
+
     plt.rcParams.update({'font.size': 22})
-    fig, ax = plt.subplots(1, 2, figsize=(16, 9))
+    fig, ax = plt.subplots(1, 2, figsize=(18, 9))
+
+    nb_ticks = 50
+    x_ticks = np.arange(1, len(train_losses) + 1, nb_ticks)
+    x_iters = np.arange(1, len(train_losses) + 1, log_every)
+    best_val_idx = int(np.argmin(val_losses)) + 1
+
     # Plot training and validation losses
-    ax[0].plot(range(1, len(train_losses) + 1), train_losses, label='Training Loss')
-    ax[0].plot(range(1, len(val_losses) + 1), val_losses, label='Validation Loss')
-    ax[0].set_xlabel('Epochs')
+    ax[0].plot(x_iters, train_losses, label='Training Loss')
+    ax[0].plot(x_iters, val_losses, label='Validation Loss')
+
+    # Mark best validation loss
+    ax[0].axhline(y=val_losses[best_val_idx - 1], color='red', linestyle='--', label='Best Val Loss')
+    ax[0].annotate(f'Best: {val_losses[best_val_idx - 1]:.4f}',
+                   xy=(best_val_idx, val_losses[best_val_idx - 1]),
+                   xytext=(best_val_idx + 10, val_losses[best_val_idx - 1] + 0.02),
+                   arrowprops=dict(facecolor='red', arrowstyle='->'),
+                   fontsize=16)
+
+    # Mark epoch lines
+    max_iter = len(train_losses)
+    for epoch in range(1, (max_iter * 1) // iterations_per_epoch + 1):
+        x_pos = epoch * iterations_per_epoch // log_every  # adjust if logging is every 1000
+        ax[0].axvline(x=x_pos, color='gray', linestyle='--', linewidth=1)
+        ax[0].text(x_pos, ax[0].get_ylim()[1], f'E{epoch}', rotation=90,
+                   verticalalignment='bottom', horizontalalignment='right', fontsize=10)
+
+    ax[0].set_xlabel('Iterations')
     ax[0].set_ylabel('Loss')
-    ax[0].set_title('Training and Validation Losses')
-    ax[0].legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2)
+    ax[0].set_title('Losses per Iteration')
+    ax[0].legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=3)
 
     # Plot validation metrics
     for metric_name, metric_values in val_metrics.items():
-        ax[1].plot(range(1, len(metric_values) + 1), metric_values, label=metric_name)
-    ax[1].set_xlabel('Epochs')
+        ax[1].plot(x_iters[:len(metric_values)], metric_values, label=metric_name)
+
+    # Add epoch lines to metrics plot
+    for epoch in range(1, (max_iter * 1) // iterations_per_epoch + 1):
+        x_pos = epoch * iterations_per_epoch // 1000
+        ax[1].axvline(x=x_pos, color='gray', linestyle='--', linewidth=1)
+        ax[1].text(x_pos, ax[1].get_ylim()[1], f'E{epoch}', rotation=90,
+                   verticalalignment='bottom', horizontalalignment='right', fontsize=10)
+
+    ax[1].set_xlabel('Iterations')
     ax[1].set_ylabel('Metric Value')
-    ax[1].set_title('Validation Metrics')
-    # Put the legend below the plot, centered, with 2 columns
+    ax[1].set_title('Validation Metrics per Iteration')
     ax[1].legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2)
+
     plt.tight_layout()
     plt.savefig(os.path.join(figures_dir, 'metrics.png'))
-    # plt.close(fig)
     plt.show()
 
 def evaluate_loss(dataloader, encoder, decoder, criterion):
