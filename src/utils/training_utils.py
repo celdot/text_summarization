@@ -12,7 +12,7 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
     Plots the training and validation losses.
     """
     plt.rcParams.update({'font.size': 22})
-    fig, ax = plt.subplots(1, 2, figsize=(15, 5))
+    fig, ax = plt.subplots(1, 2, figsize=(16, 9))
     # Plot training and validation losses
     ax[0].plot(range(1, len(train_losses) + 1), train_losses, label='Training Loss')
     ax[0].plot(range(1, len(val_losses) + 1), val_losses, label='Validation Loss')
@@ -31,7 +31,8 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics):
     ax[1].legend(loc='upper center', bbox_to_anchor=(0.5, -0.15), ncol=2)
     plt.tight_layout()
     plt.savefig(os.path.join(figures_dir, 'metrics.png'))
-    plt.close(fig)
+    # plt.close(fig)
+    plt.show()
 
 def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
@@ -123,7 +124,6 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
 
     predictions = []
     targets = []
-    
     with torch.no_grad():
         for data in dataloader:
             input_tensor, target_tensor = data
