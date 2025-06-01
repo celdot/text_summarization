@@ -6,9 +6,10 @@ import torch
 from ignite.metrics import Rouge
 from matplotlib import pyplot as plt
 from torcheval.metrics.functional import bleu_score
+from tqdm import tqdm
 
 
-def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every=2000, iterations_per_epoch=29409):
+def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every, iterations_per_epoch):
     """
     Plots the training/validation losses and metrics per iteration.
     Marks the best validation point and each epoch boundary.
@@ -70,7 +71,7 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every=2
 def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
     with torch.no_grad():
-        for data in dataloader:
+        for data in tqdm(dataloader):
             input_tensor, target_tensor = data
 
             encoder_outputs, encoder_hidden = encoder(input_tensor)
@@ -158,7 +159,7 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
     predictions = []
     targets = []
     with torch.no_grad():
-        for data in dataloader:
+        for data in tqdm(dataloader):
             input_tensor, target_tensor = data
 
             predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)

@@ -135,7 +135,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
             break
 
     if not tuning:
-        plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
+        plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics, log_every, len(train_dataloader))
         
 def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hyperparams,
                   optimizer_hyperparams, log_every, print_examples_every, tuning,
