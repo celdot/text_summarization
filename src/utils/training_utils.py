@@ -6,7 +6,6 @@ import torch
 from ignite.metrics import Rouge
 from matplotlib import pyplot as plt
 from torcheval.metrics.functional import bleu_score
-from tqdm import tqdm
 
 
 def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every, iterations_per_epoch):
@@ -15,33 +14,25 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every, 
     Marks the best validation point and each epoch boundary.
     """
     plt.rcParams.update({'font.size': 22})
-    _, ax = plt.subplots(1, 2, figsize=(18, 9))
+    _, ax = plt.subplots(1, 2, figsize=(22, 9))
 
     nb_ticks = 50
     x_ticks = np.arange(1, len(train_losses) + 1, nb_ticks)
-    x_iters = np.arange(1, len(train_losses) + 1, log_every)
     best_val_idx = int(np.argmin(val_losses)) + 1
 
     # Plot training and validation losses
-    ax[0].plot(x_iters, train_losses, label='Training Loss')
-    ax[0].plot(x_iters, val_losses, label='Validation Loss')
+    ax[0].plot(np.arange(1, len(train_losses) + 1), train_losses, label='Training Loss')
+    ax[0].plot(np.arange(1, len(val_losses) + 1), val_losses, label='Validation Loss')
     ax[0].set_xticks(x_ticks)
 
     # Mark best validation loss
     ax[0].axhline(y=val_losses[best_val_idx - 1], color='red', linestyle='--', label='Best Val Loss')
-    ax[0].annotate(f'Best: {val_losses[best_val_idx - 1]:.4f}',
-                   xy=(best_val_idx, val_losses[best_val_idx - 1]),
-                   xytext=(best_val_idx + 10, val_losses[best_val_idx - 1] + 0.02),
-                   arrowprops=dict(facecolor='red', arrowstyle='->'),
-                   fontsize=16)
 
     # Mark epoch lines
     max_iter = len(train_losses)
     for epoch in range(1, (max_iter * 1) // iterations_per_epoch + 1):
-        x_pos = epoch * iterations_per_epoch // log_every  # adjust if logging is every 1000
+        x_pos = epoch * iterations_per_epoch // log_every
         ax[0].axvline(x=x_pos, color='gray', linestyle='--', linewidth=1)
-        ax[0].text(x_pos, ax[0].get_ylim()[1], f'E{epoch}', rotation=90,
-                   verticalalignment='bottom', horizontalalignment='right', fontsize=10)
 
     ax[0].set_xlabel('Iterations')
     ax[0].set_ylabel('Loss')
@@ -50,14 +41,12 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every, 
 
     # Plot validation metrics
     for metric_name, metric_values in val_metrics.items():
-        ax[1].plot(x_iters[:len(metric_values)], metric_values, label=metric_name)
+        ax[1].plot(np.arange(1, len(metric_values) + 1), metric_values, label=metric_name)
 
     # Add epoch lines to metrics plot
     for epoch in range(1, (max_iter * 1) // iterations_per_epoch + 1):
-        x_pos = epoch * iterations_per_epoch // 1000
+        x_pos = epoch * iterations_per_epoch // log_every
         ax[1].axvline(x=x_pos, color='gray', linestyle='--', linewidth=1)
-        ax[1].text(x_pos, ax[1].get_ylim()[1], f'E{epoch}', rotation=90,
-                   verticalalignment='bottom', horizontalalignment='right', fontsize=10)
 
     ax[1].set_xlabel('Iterations')
     ax[1].set_ylabel('Metric Value')
@@ -70,20 +59,26 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every, 
 
 def evaluate_loss(dataloader, encoder, decoder, criterion):
     total_loss = 0
+    total_batches = len(dataloader)
+
     with torch.no_grad():
-        for data in tqdm(dataloader):
+        for idx, data in enumerate(dataloader):
             input_tensor, target_tensor = data
 
             encoder_outputs, encoder_hidden = encoder(input_tensor)
             decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
 
             loss = criterion(
-            decoder_outputs.view(-1, decoder_outputs.size(-1)),
-            target_tensor.view(-1)
+                decoder_outputs.view(-1, decoder_outputs.size(-1)),
+                target_tensor.view(-1)
             )
             total_loss += loss.item()
 
-    return total_loss / len(dataloader)
+            percent_complete = (idx / total_batches) * 100
+            print("\r", end="")  # Move cursor up and clear line
+            print(f'Evaluating loss: {percent_complete:.2f}%', end="")
+
+    return total_loss / total_batches
 
 def decode_data(text_ids, index2word, EOS_token):
     """
@@ -150,16 +145,15 @@ def compute_metrics(predictions, targets, n1=1, n2=2):
     return metrics
 
 def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
-    """
-    Evaluates the model on the given dataloader.
-    """
     encoder.eval()
     decoder.eval()
 
     predictions = []
     targets = []
+    total_batches = len(dataloader)
+
     with torch.no_grad():
-        for data in tqdm(dataloader):
+        for idx, data in enumerate(dataloader):
             input_tensor, target_tensor = data
 
             predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
@@ -167,6 +161,10 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
 
             predictions.append(predicted_words)
             targets.append(target_words)
+
+            percent_complete = (idx / total_batches) * 100
+            print("\r", end="")  # Move cursor up and clear line
+            print(f'Evaluating model: {percent_complete:.2f}%', end="")
 
     return compute_metrics(predictions, targets, n1=1, n2=2)
 

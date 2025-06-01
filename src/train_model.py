@@ -39,6 +39,8 @@ def train_epoch(
     
     early_stop = False
     for batch_idx, data in enumerate(tqdm(dataloader)):
+        if batch_idx < iteration_counter % len(dataloader):
+            continue
         input_tensor, target_tensor = data
 
         encoder_optimizer.zero_grad()
@@ -91,7 +93,7 @@ def train_epoch(
                 for metric_name in plot_val_metrics.keys():
                     plot_val_metrics[metric_name].append(val_metrics[metric_name])
 
-                print(f"[Iter {iteration_counter}] Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
+                print(f"Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
                 
         if iteration_counter % print_examples_every == 0 and not tuning:
             inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5)
@@ -109,7 +111,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
     n_epochs = optimizer_hyperparams['n_epochs']
     early_stopping_patience = optimizer_hyperparams["early_stopping_patience"]
 
-    iteration_counter = saved_metrics.get('start_epoch')
+    iteration_counter = saved_metrics.get('iteration')
     plot_train_losses = saved_metrics.get('train_losses')
     plot_val_losses = saved_metrics.get('val_losses')
     best_val_loss = saved_metrics.get('best_val_loss')
@@ -181,7 +183,7 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
     decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
     criterion = nn.NLLLoss(ignore_index=0)
 
-    start_epoch = 1
+    iteration_counter = 1
     plot_train_losses = []
     plot_val_losses = []
     best_val_loss = float('inf')
@@ -192,7 +194,7 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
         checkpoint = torch.load(checkpoint_path)
         encoder.load_state_dict(checkpoint['en'])
         decoder.load_state_dict(checkpoint['de'])
-        start_epoch = 1  # since we're tracking by iteration now
+        iteration_counter = checkpoint.get('iteration', 1) + 1
         plot_train_losses = checkpoint.get('train_losses', [])
         plot_val_losses = checkpoint.get('val_losses', [])
         best_val_loss = checkpoint.get('best_val_loss', float('inf'))
@@ -201,7 +203,7 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
         })
         
     saved_metrics = {
-        'start_epoch': start_epoch,
+        'iteration': iteration_counter,
         'train_losses': plot_train_losses,
         'val_losses': plot_val_losses,
         'best_val_loss': best_val_loss,
