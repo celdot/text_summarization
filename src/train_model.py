@@ -13,15 +13,12 @@ from utils.training_utils import (evaluate_loss, evaluate_model,
 
 plt.switch_backend('agg')
 import argparse
-import copy
 import os
 import pickle
-from itertools import product
 from pathlib import Path
 
 import numpy as np
 import optuna
-from torch.utils.tensorboard import SummaryWriter
 
 
 def train_epoch(
@@ -38,6 +35,7 @@ def train_epoch(
     total_loss = 0
     
     early_stop = False
+
     for batch_idx, data in enumerate(tqdm(dataloader)):
         if batch_idx < iteration_counter % len(dataloader):
             continue
@@ -89,14 +87,21 @@ def train_epoch(
                     early_stop = True  # signal to stop training
 
             if not tuning:
-                val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
-                for metric_name in plot_val_metrics.keys():
-                    plot_val_metrics[metric_name].append(val_metrics[metric_name])
+                print(f"[Iter {iteration_counter}] Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
 
-                print(f"Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
-                
+            encoder.train()
+            decoder.train()
+            
         if iteration_counter % print_examples_every == 0 and not tuning:
+            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
+            for metric_name in plot_val_metrics.keys():
+                plot_val_metrics[metric_name].append(val_metrics[metric_name])
+                print_metrics(val_metrics)
+                
             inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5)
+                
+            encoder.train()
+            decoder.train()
 
         iteration_counter += 1
 
