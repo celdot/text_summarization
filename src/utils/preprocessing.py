@@ -13,9 +13,6 @@ def preprocess_text(df, stopwords, column_name):
     
     # Strip leading and trailing whitespace
     df[column_name] = df[column_name].str.strip()
-
-    # Remove stopwords
-    df[column_name] = df[column_name].apply(lambda x: ' '.join([word for word in x.split() if word not in stopwords]))
     
     # Remove empty strings
     df[column_name] = df[column_name].replace('', np.nan)
