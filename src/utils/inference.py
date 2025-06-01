@@ -70,7 +70,12 @@ def main(root_dir, name, checkpoint_name, hidden_size, max_length, input_tensor)
     checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
     encoder.load_state_dict(checkpoint['en'])
     decoder.load_state_dict(checkpoint['de'])
-
+    
+    # Preprocess the input tensor
+    input_tensor = input_tensor.replace(r'[^a-zA-Z0-9\s]', '', regex=True)
+    input_tensor = input_tensor.lower()
+    input_tensor = input_tensor.strip()
+    
     # Tokenize the input tensor
     input_tensor = feature_tokenizer.texts_to_sequences([input_tensor])
     input_tensor = pad_sequences(input_tensor, maxlen=130)
