@@ -21,8 +21,6 @@ from pathlib import Path
 
 import numpy as np
 import optuna
-from optuna.visualization import (plot_optimization_history,
-                                  plot_param_importances, plot_slice)
 from torch.utils.tensorboard import SummaryWriter
 
 
@@ -55,8 +53,7 @@ def train_epoch(dataloader, encoder, decoder, encoder_optimizer,
 
     return total_loss / len(dataloader)
 
-
-def training_loop(train_dataloader, val_dataloader, encoder, decoder, criterion,
+def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, checkpoint_path, figures_dir, optimizer_hyperparams,
           saved_metrics, print_examples_every, tuning):
     
@@ -77,14 +74,12 @@ def training_loop(train_dataloader, val_dataloader, encoder, decoder, criterion,
         writer = SummaryWriter(log_dir='tensorboard_logs')
 
     # Initializations
-    print('Initializing ...')
     no_improvement_count = 0
 
     encoder_optimizer = optim.Adam(encoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
     decoder_optimizer = optim.Adam(decoder.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
-    print("Training...")
-    for epoch in tqdm(range(start_epoch, n_epochs + 1)):
+    for epoch in range(start_epoch, n_epochs + 1):
         training_loss = train_epoch(train_dataloader, encoder, decoder, encoder_optimizer, decoder_optimizer, criterion)
 
         val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
@@ -130,7 +125,7 @@ def training_loop(train_dataloader, val_dataloader, encoder, decoder, criterion,
         writer.close()
         plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics)
         
-def train(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hyperparams,
+def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hyperparams,
                   optimizer_hyperparams, print_examples_every, tuning,
                   load_checkpoint=False):
     """
@@ -170,7 +165,6 @@ def train(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hype
     EOS_token = feature_tokenizer.word2index.get("EOS", 2)
 
     # Initialize the model
-    print("Initialize the model")
     encoder = EncoderRNN(num_words_text, hidden_size).to(device)
     decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
     criterion = nn.NLLLoss(ignore_index=0)
@@ -201,7 +195,7 @@ def train(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hype
     }
 
     # Train the model
-    training_loop(train_dataloader, val_dataloader, encoder, decoder, criterion,
+    train(train_dataloader, val_dataloader, encoder, decoder, criterion,
       index2words, EOS_token, checkpoint_path, figures_dir,
       optimizer_hyperparams, saved_metrics, print_examples_every, tuning)
         
@@ -236,7 +230,6 @@ def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_s
     decoder.load_state_dict(checkpoint['de'])
 
     # Test the model
-    print('Evaluating the model on the test set...')
     test_loss = evaluate_loss(test_dataloader, encoder, decoder, criterion)
     print('Test loss: {:.4f}'.format(test_loss))
 
@@ -273,7 +266,7 @@ def main(root_dir,
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
             feature_tokenizer = pickle.load(handle)
             
-    train(
+    training_loop(
         root_dir=root_dir, checkpoint_path=checkpoint_path,
         feature_tokenizer=feature_tokenizer, device=device, name=name,
         model_hyperparams=model_hyperparams,
@@ -281,8 +274,9 @@ def main(root_dir,
         print_examples_every=print_examples_every,
         tuning=tuning, load_checkpoint=load_checkpoint)
 
-    evaluate(root_dir=root_dir, name=name, device=device, feature_tokenizer=feature_tokenizer,
-             checkpoint_path=checkpoint_path, batch_size=optimizer_hyperparams['batch_size'], model_hyperparams=model_hyperparams)
+    evaluate(root_dir=root_dir, name=name, device=device, feature_tokenizer=feature_tokenizer, 
+             checkpoint_path=checkpoint_path, batch_size=optimizer_hyperparams['batch_size'],
+             model_hyperparams=model_hyperparams)
 
 def objective(root_dir, name, trial):
     # Define hyperparameter search space
@@ -331,7 +325,7 @@ def objective(root_dir, name, trial):
     try:
         checkpoint_path = os.path.join(trial_dir, "checkpoints", trial_name, "best_checkpoint.tar")
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
-        train(
+        training_loop(
         root_dir=root_dir, checkpoint_path=checkpoint_path,
         feature_tokenizer=feature_tokenizer, device=device, name=name,
         model_hyperparams=model_hyperparams,
@@ -358,24 +352,7 @@ def tuning(root_dir, nb_trials, name):
     for key, value in trial.params.items():
         print(f"{key}: {value}")
         
-    # Save the study results
-    study_dir = os.path.join(root_dir, 'parameters_tuning', name, 'study_results')
-    os.makedirs(study_dir, exist_ok=True)
-
-    # Save the optimization history
-    fig = plot_optimization_history(study)
-    fig.savefig(os.path.join(study_dir, 'optimization_history.png'))
-    plt.close(fig)
-
-    # Save the parameter importances
-    fig = plot_param_importances(study)
-    fig.savefig(os.path.join(study_dir, 'param_importances.png'))
-    plt.close(fig)
-
-    # Save the slice plot
-    fig = plot_slice(study)
-    fig.savefig(os.path.join(study_dir, 'slice_plot.png'))
-    plt.close(fig)
+    return study
             
 if __name__ == "__main__":
     # Argparse command line arguments
@@ -383,11 +360,11 @@ if __name__ == "__main__":
     parser.add_argument('--name', type=str, default="WikiHow", help='Name of the dataset')
     parser.add_argument('--directory', type=str, default='../data', help='Directory of the dataset')
     parser.add_argument('--hidden_size', type=int, default=128, help='Hidden size of the model')
-    parser.add_argument('--max_length', type=int, default=15000, help='Maximum length of the sequences')
+    parser.add_argument('--max_length', type=int, default=50, help='Maximum length of the sequences')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='Weight decay')
-    parser.add_argument('--batch_size', type=float, default=32, help='Batch size')
-    parser.add_argument('--num_workers', type=float, default=4, help='Number of workers (should be 4*nb_GPU')
+    parser.add_argument('--batch_size', type=int, default=128, help='Batch size')
+    parser.add_argument('--num_workers', type=int, default=4, help='Number of workers (should be 4*nb_GPU')
     parser.add_argument('--n_epochs', type=int, default=50, help='Number of epochs')
     parser.add_argument('--load_checkpoint', action='store_true', help='Load the best checkpoint if it exists')
     parser.add_argument('--print_example_every', type=int, default=5, help='Print examples every n epochs')
@@ -411,7 +388,7 @@ if __name__ == "__main__":
     early_stopping_patience = args.early_stopping_patience
     hyp_tuning = args.hyp_tuning
     num_trials = args.num_trials
-        
+    
     optimizer_hyperparams = {
         'learning_rate': lr,
         'weight_decay': weight_decay,
@@ -439,4 +416,3 @@ if __name__ == "__main__":
     
     if hyp_tuning:
         tuning(root_dir=root_dir, nb_trials=num_trials, name=name)
-
