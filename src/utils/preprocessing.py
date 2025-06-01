@@ -77,7 +77,8 @@ def get_data_distribution(df, figures_dir, dataset_name):
     """
     Plot the distribution of the text and summary lengths in the dataset.
     """
-    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+    plt.rcParams.update({'font.size': 22})
+    fig, ax = plt.subplots(1, 2, figsize=(16, 9))
     text_word_count = []
     headline_word_count = []
 
@@ -96,6 +97,7 @@ def get_data_distribution(df, figures_dir, dataset_name):
     ax[1].set_xlabel("Word Count")
     ax[1].set_ylabel("Frequency")
     plt.suptitle("Distribution of Text and Summary Lengths")
+    plt.tight_layout()
     plt.savefig(os.path.join(figures_dir, f"{dataset_name}_text_summary_length_distribution.png"))
     plt.show()
     plt.close(fig)
