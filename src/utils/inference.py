@@ -1,3 +1,4 @@
+import argparse
 import os
 import pickle
 import time
@@ -54,9 +55,10 @@ def summarize_on_cpu(input_tensor, encoder, decoder, EOS_token, index2word):
     print(f"Inference completed in {end_time - start_time:.2f} seconds.")
     return ' '.join(decoded_words)
 
-def main(root_dir, name, hidden_size, max_length, input_tensor):
+def main(root_dir, name, checkpoint_name, hidden_size, max_length, input_tensor):
     dataset_dir = os.path.join(root_dir, 'data', name)
     save_dir = os.path.join(root_dir, 'checkpoints', name)
+    checkpoint_path = os.path.join(save_dir, checkpoint_name)
     
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
         feature_tokenizer = pickle.load(handle)
@@ -65,7 +67,7 @@ def main(root_dir, name, hidden_size, max_length, input_tensor):
         
     encoder = EncoderRNN(num_words_text, hidden_size).to(torch.device('cpu'))
     decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(torch.device('cpu'))
-    checkpoint = torch.load(os.path.join(save_dir, 'best_checkpoint.tar'), map_location=torch.device('cpu'))
+    checkpoint = torch.load(checkpoint_path, map_location=torch.device('cpu'))
     encoder.load_state_dict(checkpoint['en'])
     decoder.load_state_dict(checkpoint['de'])
 
@@ -81,15 +83,25 @@ def main(root_dir, name, hidden_size, max_length, input_tensor):
     print("Summary:", summary)
     
 if __name__ == "__main__":
-    # Ask for input tensor from the user
-    root_dir = Path.cwd().parent
-    hidden_size = 128
-    max_length = 50
+    parser = argparse.ArgumentParser(description='Summarize text using a trained model.')
+    parser.add_argument('--root_dir', type=str, default=Path.cwd().parent, help='Root directory of the project')
+    parser.add_argument('--name', type=str, default='WikiHow', help='Name of the dataset')
+    parser.add_argument('--checkpoint_name', type=str, default='best_checkpoint.tar', help='Checkpoint file name')
+    parser.add_argument('--hidden_size', type=int, default=128, help='Hidden size of the model')
+    parser.add_argument('--max_length', type=int, default=50, help='Maximum length of the output summary')
+
+    args = parser.parse_args()
     
-    name = 'WikiHow'
+    root_dir = args.root_dir
+    name = args.name
+    checkpoint_name = args.checkpoint_name
+    hidden_size = args.hidden_size
+    max_length = args.max_length
+
     while True:
+        # Ask for input tensor from the user
         input_tensor = input("Enter the text to summarize (or type 'exit' to quit): ")
         if input_tensor.lower() == 'exit':
             break
         # Don't forget to water your plants, they need it to survive.
-        main(root_dir, name, hidden_size, max_length, input_tensor)
+        main(root_dir, name, checkpoint_name, hidden_size, max_length, input_tensor)
