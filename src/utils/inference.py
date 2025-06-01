@@ -1,6 +1,7 @@
 import argparse
 import os
 import pickle
+import re
 import time
 from pathlib import Path
 
@@ -72,7 +73,7 @@ def main(root_dir, name, checkpoint_name, hidden_size, max_length, input_tensor)
     decoder.load_state_dict(checkpoint['de'])
     
     # Preprocess the input tensor
-    input_tensor = input_tensor.replace(r'[^a-zA-Z0-9\s]', '', regex=True)
+    input_tensor = re.sub(r'[^a-zA-Z0-9\s]', '', input_tensor)
     input_tensor = input_tensor.lower()
     input_tensor = input_tensor.strip()
     
