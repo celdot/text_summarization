@@ -109,6 +109,8 @@ def tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, l
     print("Number of Samples in y_train:", len(y_train))
     print("Number of Samples in y_val:", len(y_val))
     print("Number of Samples in y_test:", len(y_test))
+    
+    print("Vocabulary size:", feature_tokenizer.n_words)
 
     return X_train, X_val, X_test, y_train, y_val, y_test
 
