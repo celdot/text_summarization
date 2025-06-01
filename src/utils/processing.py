@@ -169,8 +169,9 @@ def processing_pipeline(dataset_dir, name, load_tokenizer = False):
     """
     df = pd.read_csv(os.path.join(dataset_dir, name + '.csv'))
     maxlen_text = df["text"].str.split().str.len().max()
-    # maxlen_summary = df["summary"].str.split().str.len().max()
-    maxlen_summary = 15
+    maxlen_summary = df["summary"].str.split().str.len().max()
+    maxlen_text = max(maxlen_text, 150)  # Ensure text has a minimum length
+    maxlen_summary = max(maxlen_summary, 20)  # Ensure summary has a minimum length
     print("Max length of text:", maxlen_text)
     print("Max length of summary:", maxlen_summary)
 
