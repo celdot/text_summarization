@@ -358,7 +358,7 @@ if __name__ == "__main__":
     # Argparse command line arguments
     parser = argparse.ArgumentParser(description='Train a Seq2Seq model with attention.')
     parser.add_argument('--name', type=str, default="WikiHow", help='Name of the dataset')
-    parser.add_argument('--directory', type=str, default='../data', help='Directory of the dataset')
+    parser.add_argument('--directory', type=str, default=Path.cwd().parent, help='Directory of the dataset')
     parser.add_argument('--hidden_size', type=int, default=128, help='Hidden size of the model')
     parser.add_argument('--max_length', type=int, default=50, help='Maximum length of the sequences')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
@@ -402,12 +402,10 @@ if __name__ == "__main__":
         'hidden_size': hidden_size,
         'max_length': max_length
     }
-    
-    root_dir = Path.cwd().parent
-    
-    main(root_dir = root_dir,
+
+    main(root_dir=root_dir,
         model_hyperparams=model_hyperparams,
-        tuning = hyp_tuning,
+        tuning=hyp_tuning,
         optimizer_hyperparams=optimizer_hyperparams,
         print_examples_every=print_example_every,
         load_checkpoint=load_checkpoint,
