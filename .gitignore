@@ -3,4 +3,6 @@ raw_data/WikiHow/*
 DD2417_Project_topics_2025.pdf
 data/AmazonFineFoods/*
 data/WikiHow/*
+data_packed/AmazonFineFoods/*
+data_packed/WikiHow/*
 checkpoints
