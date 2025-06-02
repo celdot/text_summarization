@@ -7,6 +7,94 @@ from ignite.metrics import Rouge
 from matplotlib import pyplot as plt
 from torcheval.metrics.functional import bleu_score
 
+def train_epoch_packed(
+    dataloader, encoder, decoder, encoder_optimizer,
+    decoder_optimizer, criterion, val_dataloader, iteration_counter,
+    log_every, print_examples_every, index2words, EOS_token,
+    plot_train_losses, plot_val_losses, plot_val_metrics,
+    tuning, checkpoint_path, best_val_loss_ref, no_improvement_count,
+    early_stopping_patience
+):
+    encoder.train()
+    decoder.train()
+
+    total_loss = 0
+    
+    early_stop = False
+
+    for batch_idx, data in enumerate(tqdm(dataloader)):
+        if batch_idx < iteration_counter % len(dataloader):
+            continue
+        # NOTE: THESE ARE NOT PACKED YET!!
+        input_tensor, input_lengths, target_tensor, target_lengths = data
+
+        encoder_optimizer.zero_grad()
+        decoder_optimizer.zero_grad()
+
+        encoder_mask = (input_tensor != 0)
+        encoder_outputs, encoder_hidden = encoder(input_tensor, input_lengths, encoder_mask)
+        decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, encoder_mask, target_tensor)
+
+        loss = criterion(
+            decoder_outputs.view(-1, decoder_outputs.size(-1)),
+            target_tensor.view(-1)
+        )
+        loss.backward()
+
+        encoder_optimizer.step()
+        decoder_optimizer.step()
+
+        total_loss += loss.item()
+
+        if iteration_counter % log_every == 0:
+            avg_train_loss = total_loss / (batch_idx + 1)
+            val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion, legacy=False)
+
+            plot_train_losses.append(avg_train_loss)
+            plot_val_losses.append(val_loss)
+
+            # Early stopping & checkpointing
+            if val_loss < best_val_loss_ref:
+                if os.path.exists(checkpoint_path):
+                    os.remove(checkpoint_path)
+                best_val_loss_ref = val_loss
+                no_improvement_count = 0
+                torch.save({
+                    'iteration': iteration_counter,
+                    'en': encoder.state_dict(),
+                    'de': decoder.state_dict(),
+                    'train_losses': plot_train_losses,
+                    'val_losses': plot_val_losses,
+                    'best_val_loss': best_val_loss_ref,
+                    'val_metrics': plot_val_metrics
+                }, checkpoint_path)
+            else:
+                no_improvement_count += 1
+                if no_improvement_count >= early_stopping_patience:
+                    print(f"Early stopping triggered at iteration {iteration_counter}")
+                    early_stop = True  # signal to stop training
+
+            if not tuning:
+                print(f"[Iter {iteration_counter}] Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
+
+            encoder.train()
+            decoder.train()
+            
+        if iteration_counter % print_examples_every == 0 and not tuning:
+            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token, legacy=False)
+            for metric_name in plot_val_metrics.keys():
+                plot_val_metrics[metric_name].append(val_metrics[metric_name])
+                print_metrics(val_metrics)
+                
+            inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5, legacy=False)
+                
+            encoder.train()
+            decoder.train()
+
+        iteration_counter += 1
+
+    return early_stop
+
 
 def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every, iterations_per_epoch):
     """
@@ -57,26 +145,45 @@ def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every, 
     plt.savefig(os.path.join(figures_dir, 'metrics.png'))
     plt.show()
 
-def evaluate_loss(dataloader, encoder, decoder, criterion):
+def evaluate_loss(dataloader, encoder, decoder, criterion, legacy=False):
     total_loss = 0
     total_batches = len(dataloader)
 
     with torch.no_grad():
-        for idx, data in enumerate(dataloader):
-            input_tensor, target_tensor = data
+        if legacy:
+            for idx, data in enumerate(dataloader):
+                input_tensor, target_tensor = data
 
-            encoder_outputs, encoder_hidden = encoder(input_tensor)
-            decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
+                encoder_outputs, encoder_hidden = encoder(input_tensor)
+                decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
 
-            loss = criterion(
-                decoder_outputs.view(-1, decoder_outputs.size(-1)),
-                target_tensor.view(-1)
-            )
-            total_loss += loss.item()
+                loss = criterion(
+                    decoder_outputs.view(-1, decoder_outputs.size(-1)),
+                    target_tensor.view(-1)
+                )
+                total_loss += loss.item()
 
-            percent_complete = (idx / total_batches) * 100
-            print("\r", end="")  # Move cursor up and clear line
-            print(f'Evaluating loss: {percent_complete:.2f}%', end="")
+                percent_complete = (idx / total_batches) * 100
+                print("\r", end="")  # Move cursor up and clear line
+                print(f'Evaluating loss: {percent_complete:.2f}%', end="")
+        else:
+            for idx, data in enumerate(dataloader):
+                input_tensor, input_lengths, target_tensor, target_lengths = data
+
+                encoder_mask = (input_tensor != 0)
+
+                encoder_outputs, encoder_hidden = encoder(input_tensor, input_lengths, encoder_mask)
+                decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, encoder_mask, target_tensor)
+
+                loss = criterion(
+                    decoder_outputs.view(-1, decoder_outputs.size(-1)),
+                    target_tensor.view(-1)
+                )
+                total_loss += loss.item()
+
+                percent_complete = (idx / total_batches) * 100
+                print("\r", end="")  # Move cursor up and clear line
+                print(f'Evaluating loss: {percent_complete:.2f}%', end="")
 
     return total_loss / total_batches
 
@@ -99,15 +206,25 @@ def decode_data(text_ids, index2word, EOS_token):
 
     return " ".join(decoded_words)
 
-def make_predictions(encoder, decoder, input_tensor, index2word, EOS_token):
+def make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, legacy, input_lengths):
     """
     Computes the summary for the given input tensor.
+    NOTE: If legacy==False => must provide input_lengths!!
     """
     input_tensor = input_tensor[0].unsqueeze(0)
     target_tensor = None  # Set target_tensor to None for inference
 
-    encoder_outputs, encoder_hidden = encoder(input_tensor)
-    decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
+    
+    if legacy:
+        encoder_outputs, encoder_hidden = encoder(input_tensor)
+        decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
+    else:
+        encoder_mask = (input_tensor != 0)
+        # Shorten input_lengths as well
+        input_lengths = input_lengths[0].unsqueeze(0)
+        encoder_outputs, encoder_hidden = encoder(input_tensor, input_lengths, encoder_mask)
+        decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, encoder_mask, target_tensor)
+
 
     # Get the predicted words
     _, topi = decoder_outputs.topk(1)
@@ -144,7 +261,7 @@ def compute_metrics(predictions, targets, n1=1, n2=2):
 
     return metrics
 
-def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
+def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token, legacy=False):
     encoder.eval()
     decoder.eval()
 
@@ -153,47 +270,84 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token):
     total_batches = len(dataloader)
 
     with torch.no_grad():
-        for idx, data in enumerate(dataloader):
-            input_tensor, target_tensor = data
+        if legacy:
+            for idx, data in enumerate(dataloader):
+                input_tensor, target_tensor = data
 
-            predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
-            target_words = decode_data(target_tensor[0], index2word, EOS_token)
+                predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
+                target_words = decode_data(target_tensor[0], index2word, EOS_token)
 
-            predictions.append(predicted_words)
-            targets.append(target_words)
+                predictions.append(predicted_words)
+                targets.append(target_words)
 
-            percent_complete = (idx / total_batches) * 100
-            print("\r", end="")  # Move cursor up and clear line
-            print(f'Evaluating model: {percent_complete:.2f}%', end="")
+                percent_complete = (idx / total_batches) * 100
+                print("\r", end="")  # Move cursor up and clear line
+                print(f'Evaluating model: {percent_complete:.2f}%', end="")
+        else:
+            for idx, data in enumerate(dataloader):
+                input_tensor, input_lengths, target_tensor, target_lengths = data
+            
+
+                predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, legacy=legacy, input_lengths=input_lengths)
+                target_words = decode_data(target_tensor[0], index2word, EOS_token)
+
+                predictions.append(predicted_words)
+                targets.append(target_words)
+
+                percent_complete = (idx / total_batches) * 100
+                print("\r", end="")  # Move cursor up and clear line
+                print(f'Evaluating model: {percent_complete:.2f}%', end="")
 
     return compute_metrics(predictions, targets, n1=1, n2=2)
 
-def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_decoding_test=5, writer=None):
+def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_decoding_test=5, writer=None, legacy=False):
     encoder.eval()
     decoder.eval()
     count_test = 0
     random_list = random.sample(range(len(dataloader)), nb_decoding_test)
     with torch.no_grad():
-        for i, data in enumerate(dataloader):
-            if i in random_list:
-                input_tensor, target_tensor = data
-                decoded_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
-                input_text = decode_data(input_tensor[0], index2word, EOS_token)
-                target_text = decode_data(target_tensor[0], index2word, EOS_token)
+        if legacy:
+            for i, data in enumerate(dataloader):
+                if i in random_list:
+                    input_tensor, target_tensor = data
+                    decoded_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, legacy=legacy)
+                    input_text = decode_data(input_tensor[0], index2word, EOS_token)
+                    target_text = decode_data(target_tensor[0], index2word, EOS_token)
 
-                print('Input: {}'.format(input_text))
-                print('Target: {}'.format(target_text))
-                print('Predicted: {}'.format(decoded_words))
-                print('-----------------------------------')
+                    print('Input: {}'.format(input_text))
+                    print('Target: {}'.format(target_text))
+                    print('Predicted: {}'.format(decoded_words))
+                    print('-----------------------------------')
 
-                if writer:
-                    writer.add_text(f'Examples/Input_{count_test}', input_text, i)
-                    writer.add_text(f'Examples/Target_{count_test}', target_text, i)
-                    writer.add_text(f'Examples/Predicted_{count_test}', decoded_words, i)
+                    if writer:
+                        writer.add_text(f'Examples/Input_{count_test}', input_text, i)
+                        writer.add_text(f'Examples/Target_{count_test}', target_text, i)
+                        writer.add_text(f'Examples/Predicted_{count_test}', decoded_words, i)
 
-                count_test += 1
-            if count_test == nb_decoding_test:
-                break
+                    count_test += 1
+                if count_test == nb_decoding_test:
+                    break
+        else:
+            for i, data in enumerate(dataloader):
+                if i in random_list:
+                    input_tensor, input_lengths, target_tensor, target_lengths = data
+                    decoded_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, legacy=legacy, input_lengths=input_lengths)
+                    input_text = decode_data(input_tensor[0], index2word, EOS_token)
+                    target_text = decode_data(target_tensor[0], index2word, EOS_token)
+
+                    print('Input: {}'.format(input_text))
+                    print('Target: {}'.format(target_text))
+                    print('Predicted: {}'.format(decoded_words))
+                    print('-----------------------------------')
+
+                    if writer:
+                        writer.add_text(f'Examples/Input_{count_test}', input_text, i)
+                        writer.add_text(f'Examples/Target_{count_test}', target_text, i)
+                        writer.add_text(f'Examples/Predicted_{count_test}', decoded_words, i)
+
+                    count_test += 1
+                if count_test == nb_decoding_test:
+                    break
             
 def print_metrics(metrics, writer=None):
     """

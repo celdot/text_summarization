@@ -6,10 +6,11 @@ import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
 
-from utils.models import AttnDecoderRNN, EncoderRNN
+from utils.models import AttnDecoderRNN, EncoderRNN, AttnDecoderRNN_packed, EncoderRNN_packed
 from utils.training_utils import (evaluate_loss, evaluate_model,
                                   inference_testing, plot_metrics,
-                                  print_metrics)
+                                  print_metrics, train_epoch_packed)
+from utils.data_structures import create_packed_dataloader
 
 plt.switch_backend('agg')
 import argparse
@@ -60,7 +61,7 @@ def train_epoch(
 
         if iteration_counter % log_every == 0:
             avg_train_loss = total_loss / (batch_idx + 1)
-            val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion)
+            val_loss = evaluate_loss(val_dataloader, encoder, decoder, criterion, legacy=True)
 
             plot_train_losses.append(avg_train_loss)
             plot_val_losses.append(val_loss)
@@ -93,12 +94,12 @@ def train_epoch(
             decoder.train()
             
         if iteration_counter % print_examples_every == 0 and not tuning:
-            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token)
+            val_metrics = evaluate_model(encoder, decoder, val_dataloader, index2words, EOS_token, legacy=True)
             for metric_name in plot_val_metrics.keys():
                 plot_val_metrics[metric_name].append(val_metrics[metric_name])
                 print_metrics(val_metrics)
                 
-            inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5)
+            inference_testing(encoder, decoder, val_dataloader, index2words, EOS_token, nb_decoding_test=5, legacy=True)
                 
             encoder.train()
             decoder.train()
@@ -109,7 +110,7 @@ def train_epoch(
 
 def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
           index2words, EOS_token, checkpoint_path, figures_dir, optimizer_hyperparams,
-          saved_metrics, log_every, print_examples_every, tuning):
+          saved_metrics, log_every, print_examples_every, tuning, legacy=False):
 
     learning_rate = optimizer_hyperparams['learning_rate']
     weight_decay = optimizer_hyperparams['weight_decay']
@@ -127,32 +128,51 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
 
     no_improvement_count = 0
 
-    for _ in range(1, n_epochs + 1):
-        early_stop = train_epoch(
-            train_dataloader, encoder, decoder,
-            encoder_optimizer, decoder_optimizer, criterion,
-            val_dataloader, iteration_counter, log_every, print_examples_every,
-            index2words, EOS_token,
-            plot_train_losses, plot_val_losses, plot_val_metrics,
-            tuning, checkpoint_path, best_val_loss,
-            no_improvement_count, early_stopping_patience
-        )
+    if legacy:
+        for _ in range(1, n_epochs + 1):
+            early_stop = train_epoch(
+                train_dataloader, encoder, decoder,
+                encoder_optimizer, decoder_optimizer, criterion,
+                val_dataloader, iteration_counter, log_every, print_examples_every,
+                index2words, EOS_token,
+                plot_train_losses, plot_val_losses, plot_val_metrics,
+                tuning, checkpoint_path, best_val_loss,
+                no_improvement_count, early_stopping_patience
+            )
 
-        if early_stop:
-            break
+            if early_stop:
+                break
+    else:
+        for _ in range(1, n_epochs + 1):
+            early_stop = train_epoch_packed(
+                train_dataloader, encoder, decoder,
+                encoder_optimizer, decoder_optimizer, criterion,
+                val_dataloader, iteration_counter, log_every, print_examples_every,
+                index2words, EOS_token,
+                plot_train_losses, plot_val_losses, plot_val_metrics,
+                tuning, checkpoint_path, best_val_loss,
+                no_improvement_count, early_stopping_patience
+            )
+
+            if early_stop:
+                break
 
     if not tuning:
         plot_metrics(figures_dir, plot_train_losses, plot_val_losses, plot_val_metrics, log_every, len(train_dataloader))
         
 def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, model_hyperparams,
                   optimizer_hyperparams, log_every, print_examples_every, tuning,
-                  load_checkpoint=False):
+                  load_checkpoint=False, legacy=False):
     """
     Main training loop for the Seq2Seq model with attention.
     """
     # Get directories
-    dataset_dir = os.path.join(root_dir, 'data', name)
-    figures_dir = os.path.join(root_dir, 'figures', name)
+    if legacy:
+        dataset_dir = os.path.join(root_dir, 'data', name)
+        figures_dir = os.path.join(root_dir, 'figures', name)
+    else:
+        dataset_dir = os.path.join(root_dir, 'data_packed', name)
+        figures_dir = os.path.join(root_dir, 'figures_packed', name)
 
     os.makedirs(figures_dir, exist_ok=True)
     
@@ -163,29 +183,46 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
     hidden_size = model_hyperparams['hidden_size']
 
     # Load the dataset
-    X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"))
-    X_val = torch.load(os.path.join(dataset_dir, "x_val.pt"))
-    y_train = torch.load(os.path.join(dataset_dir, "y_train.pt"))
-    y_val = torch.load(os.path.join(dataset_dir, "y_val.pt"))
+    if legacy:
+        X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"))
+        X_val = torch.load(os.path.join(dataset_dir, "x_val.pt"))
+        y_train = torch.load(os.path.join(dataset_dir, "y_train.pt"))
+        y_val = torch.load(os.path.join(dataset_dir, "y_val.pt"))
+        train_dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_train, y_train),
+            batch_size=batch_size,
+            shuffle=True,
+            )
+        val_dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_val, y_val),
+            batch_size=batch_size,
+            shuffle=True,
+            )
+    else:
+        X_train = torch.load(os.path.join(dataset_dir, "x_train_list.pt"))
+        X_val = torch.load(os.path.join(dataset_dir, "x_val_list.pt"))
+        y_train = torch.load(os.path.join(dataset_dir, "y_train_list.pt"))
+        y_val = torch.load(os.path.join(dataset_dir, "y_val_list.pt"))
 
-    train_dataloader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(X_train, y_train),
-        batch_size=batch_size,
-        shuffle=True,
-    )
-    val_dataloader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(X_val, y_val),
-        batch_size=batch_size,
-        shuffle=True,
-    )
+        train_dataloader = create_packed_dataloader(X_train, y_train, pad_id=0, 
+                                                    batch_size=batch_size, shuffle=True)
+        val_dataloader = create_packed_dataloader(X_val, y_val, pad_id=0, 
+                                                    batch_size=batch_size, shuffle=True)
+
+    
 
     index2words = feature_tokenizer.index2word
     num_words_text = max(feature_tokenizer.word2index.values()) + 1
     EOS_token = feature_tokenizer.word2index.get("EOS", 2)
 
     # Initialize the model
-    encoder = EncoderRNN(num_words_text, hidden_size).to(device)
-    decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
+    if legacy:
+        encoder = EncoderRNN(num_words_text, hidden_size).to(device)
+        decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
+    else:
+        encoder = EncoderRNN_packed(num_words_text, hidden_size).to(device)
+        decoder = AttnDecoderRNN_packed(hidden_size, num_words_text, max_length).to(device)
+    
     criterion = nn.NLLLoss(ignore_index=0)
 
     iteration_counter = 1
@@ -218,22 +255,31 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
     # Train the model
     train(train_dataloader, val_dataloader, encoder, decoder, criterion,
       index2words, EOS_token, checkpoint_path, figures_dir,
-      optimizer_hyperparams, saved_metrics, log_every, print_examples_every, tuning)
+      optimizer_hyperparams, saved_metrics, log_every, print_examples_every, tuning, legacy=legacy)
         
-def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_size, model_hyperparams):
+def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_size, model_hyperparams, legacy=False):
     """
     Evaluate the model on the test set.
     """
-    dataset_dir = os.path.join(root_dir, 'data', name)
-    
-    X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
-    y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))
-    
-    test_dataloader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(X_test, y_test),
-        batch_size=batch_size,
-        shuffle=True,
-    )
+    if legacy:
+        dataset_dir = os.path.join(root_dir, 'data', name)
+        
+        X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
+        y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))
+        
+        test_dataloader = torch.utils.data.DataLoader(
+            torch.utils.data.TensorDataset(X_test, y_test),
+            batch_size=batch_size,
+            shuffle=True,
+        )
+    else:
+        dataset_dir = os.path.join(root_dir, 'data_packed', name)
+        
+        X_test = torch.load(os.path.join(dataset_dir, "x_test_list.pt"))
+        y_test = torch.load(os.path.join(dataset_dir, "y_test_list.pt"))
+        
+        test_dataloader = create_packed_dataloader(X_test, y_test, pad_id=0, 
+                                                   batch_size=batch_size, shuffle=True)
 
     num_words_text = max(feature_tokenizer.word2index.values()) + 1
     EOS_token = feature_tokenizer.word2index.get("EOS", 2)
@@ -241,8 +287,13 @@ def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_s
     hidden_size = model_hyperparams['hidden_size']
     max_length = model_hyperparams['max_length']
     
-    encoder = EncoderRNN(num_words_text, hidden_size).to(device)
-    decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
+    if legacy:
+        encoder = EncoderRNN(num_words_text, hidden_size).to(device)
+        decoder = AttnDecoderRNN(hidden_size, num_words_text, max_length).to(device)
+    else:
+        encoder = EncoderRNN_packed(num_words_text, hidden_size).to(device)
+        decoder = AttnDecoderRNN_packed(hidden_size, num_words_text, max_length).to(device)
+
     criterion = nn.NLLLoss(ignore_index=0)
 
     # Load the best model
@@ -251,14 +302,14 @@ def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_s
     decoder.load_state_dict(checkpoint['de'])
 
     # Test the model
-    test_loss = evaluate_loss(test_dataloader, encoder, decoder, criterion)
+    test_loss = evaluate_loss(test_dataloader, encoder, decoder, criterion, legacy=legacy)
     print('Test loss: {:.4f}'.format(test_loss))
 
     # Evaluate the model
-    metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token)
+    metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, legacy=legacy)
     print_metrics(metrics)
     # Get a random sample from the test set
-    inference_testing(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, nb_decoding_test=5)
+    inference_testing(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, nb_decoding_test=5, legacy=legacy)
 
 def main(root_dir,
     model_hyperparams,
@@ -268,6 +319,7 @@ def main(root_dir,
     tuning,
     load_checkpoint = False,
     name = "WikiHow",
+    legacy = False
     ):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(device)
@@ -278,8 +330,12 @@ def main(root_dir,
     torch.manual_seed(5719)
     torch.use_deterministic_algorithms(False)
     
-    dataset_dir = os.path.join(root_dir, 'data', name)
-    save_dir = os.path.join(root_dir, 'checkpoints', name)
+    if legacy:
+        dataset_dir = os.path.join(root_dir, 'data', name)
+        save_dir = os.path.join(root_dir, 'checkpoints', name)
+    else:
+        dataset_dir = os.path.join(root_dir, 'data_packed', name)
+        save_dir = os.path.join(root_dir, 'checkpoints_packed', name)
     os.makedirs(save_dir, exist_ok=True)
     checkpoint_path = os.path.join(save_dir, 'best_checkpoint.tar')
     
@@ -295,13 +351,14 @@ def main(root_dir,
         optimizer_hyperparams=optimizer_hyperparams,
         log_every=log_every,
         print_examples_every=print_examples_every,
-        tuning=tuning, load_checkpoint=load_checkpoint)
+        tuning=tuning, load_checkpoint=load_checkpoint,
+        legacy=legacy)
 
     evaluate(root_dir=root_dir, name=name, device=device, feature_tokenizer=feature_tokenizer, 
              checkpoint_path=checkpoint_path, batch_size=optimizer_hyperparams['batch_size'],
-             model_hyperparams=model_hyperparams)
+             model_hyperparams=model_hyperparams, legacy=legacy)
 
-def objective(root_dir, name, trial):
+def objective(root_dir, name, trial, legacy):
     # Define hyperparameter search space
     hidden_size = trial.suggest_categorical('hidden_size', [64, 128, 256])
     max_length = trial.suggest_categorical('max_length', [30, 50, 100])
@@ -338,7 +395,10 @@ def objective(root_dir, name, trial):
     torch.manual_seed(5719)
     torch.use_deterministic_algorithms(False)
     
-    dataset_dir = os.path.join(root_dir, 'data', name)
+    if legacy:
+        dataset_dir = os.path.join(root_dir, 'data', name)
+    else:   
+        dataset_dir = os.path.join(root_dir, 'data_packed', name)
     
     # Load the vocabulary
     with open(os.path.join(dataset_dir, 'feature_tokenizer.pickle'), 'rb') as handle:
@@ -346,7 +406,10 @@ def objective(root_dir, name, trial):
     
     # Run training (validation loss is used as the objective)
     try:
-        checkpoint_path = os.path.join(trial_dir, "checkpoints", trial_name, "best_checkpoint.tar")
+        if legacy:
+            checkpoint_path = os.path.join(trial_dir, "checkpoints", trial_name, "best_checkpoint.tar")
+        else:
+            checkpoint_path = os.path.join(trial_dir, "checkpoints_packed", trial_name, "best_checkpoint.tar")
         os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
         training_loop(
         root_dir=root_dir, checkpoint_path=checkpoint_path,
@@ -355,7 +418,7 @@ def objective(root_dir, name, trial):
         optimizer_hyperparams=optimizer_hyperparams,
         log_every=100_000_000,
         print_examples_every=100_000_000,
-        tuning=True, load_checkpoint=False)
+        tuning=True, load_checkpoint=False, legacy=legacy)
 
         # Load best checkpoint to get best val loss
         checkpoint = torch.load(checkpoint_path)
@@ -365,9 +428,9 @@ def objective(root_dir, name, trial):
         print(f"Trial {trial.number} failed with error: {e}")
         return float('inf')
 
-def tuning(root_dir, nb_trials, name):
+def tuning(root_dir, nb_trials, name, legacy):
     study = optuna.create_study(direction="minimize")
-    study.optimize(lambda trial: objective(root_dir, name, trial), n_trials=nb_trials)
+    study.optimize(lambda trial: objective(root_dir, name, trial, legacy), n_trials=nb_trials)
 
     print("Best trial:")
     trial = study.best_trial
@@ -381,6 +444,7 @@ def tuning(root_dir, nb_trials, name):
 if __name__ == "__main__":
     # Argparse command line arguments
     parser = argparse.ArgumentParser(description='Train a Seq2Seq model with attention.')
+    parser.add_argument('--legacy', type=bool, default=False, help="Whether to use packed sequences (legacy=False) or not (legacy=True)")
     parser.add_argument('--name', type=str, default="WikiHow", help='Name of the dataset')
     parser.add_argument('--directory', type=str, default=Path.cwd().parent, help='Directory of the dataset')
     parser.add_argument('--hidden_size', type=int, default=128, help='Hidden size of the model')
@@ -414,6 +478,7 @@ if __name__ == "__main__":
     hyp_tuning = args.hyp_tuning
     num_trials = args.num_trials
     log_every = args.log_every
+    legacy = args.legacy
     
     optimizer_hyperparams = {
         'learning_rate': lr,
@@ -436,8 +501,9 @@ if __name__ == "__main__":
         log_every=log_every,
         print_examples_every=print_example_every,
         load_checkpoint=load_checkpoint,
-        name=name
+        name=name,
+        legacy=legacy
         )
     
     if hyp_tuning:
-        tuning(root_dir=root_dir, nb_trials=num_trials, name=name)
+        tuning(root_dir=root_dir, nb_trials=num_trials, name=name, legacy=legacy)
