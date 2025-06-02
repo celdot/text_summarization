@@ -23,6 +23,7 @@ class SummaryDataset(Dataset):
 class Summary_collate_fn():
     def __init__(self, pad_id):
         self.pad_id = pad_id 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def collate_fn(self, batch):
         '''Gets a batch, i.e. a list of tuples (sequence, label) where each of them have different length
@@ -34,8 +35,8 @@ class Summary_collate_fn():
             '''
         source_seqs, target_seqs = zip(*batch) # two lists each having len == B and variable length of samples
 
-        src_lengths = torch.tensor([len(seq) for seq in source_seqs]) # and max source length is S
-        tgt_lengths = torch.tensor([len(seq) for seq in target_seqs]) # and max target length is T
+        src_lengths = torch.tensor([len(seq) for seq in source_seqs]).to(self.device) # and max source length is S
+        tgt_lengths = torch.tensor([len(seq) for seq in target_seqs]).to(self.device) # and max target length is T
 
         padded_srcs = pad_sequence(source_seqs, batch_first=True) # Tensor (B,S)
         padded_tgts = pad_sequence(target_seqs, batch_first=True, padding_value=self.pad_id) # Tensor (B,T)
