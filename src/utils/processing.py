@@ -225,15 +225,15 @@ def save_as_tensor_list(dataset_dir, data, filename):
     for sample in data:
         # Ensure elements are integers
         sample = [int(token) for token in sample]
-        data_t.append(torch.tensor(sample))
+
+        data_t.append(torch.tensor(sample).long().to(device))
     
     
-    print(f"{filename} dtype: {data.dtype}, shape: {data.shape}")
+    print(f"{filename} dtype: {data_t[0].dtype}, shape: {data_t[0].shape}")
 
 
 
-    data = data.long().to(device)
-    torch.save(data, os.path.join(dataset_dir, filename))
+    torch.save(data_t, os.path.join(dataset_dir, filename))
 
 def del_padded_rows_packed(X_train, y_train, X_val, y_val, X_test, y_test):
     '''Same as delete_padded_rows() but now for data that is later used for packed sequences in pytorch
@@ -246,7 +246,7 @@ def del_padded_rows_packed(X_train, y_train, X_val, y_val, X_test, y_test):
         
         for x, y in zip(X, Y):
             # Only append that sample/label pair of both of them have an entry different from 0
-            if torch.any(x) and torch.any(y):
+            if torch.any(torch.tensor(x)) and torch.any(torch.tensor(y)):
                 X_clean.append(x)
                 Y_clean.append(y)
     
@@ -285,7 +285,6 @@ def processing_pipeline_packed(dataset_dir, name, load_tokenizer = False):
     X_train, y_train, X_val, y_val, X_test, y_test = del_padded_rows_packed(X_train, y_train, X_val, y_val, X_test, y_test)
 
     # Save the lists as lists of tensors
-    save_as_tensor_list(X_train)
     save_as_tensor_list(dataset_dir, X_train, "x_train_list.pt")
     del X_train
     save_as_tensor_list(dataset_dir, X_val, "x_val_list.pt")
