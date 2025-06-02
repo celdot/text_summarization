@@ -207,3 +207,94 @@ def processing_pipeline(dataset_dir, name, load_tokenizer = False):
     del y_val
     save_as_tensor(dataset_dir, y_test, "y_test.pt")
     del y_test
+
+
+def save_as_tensor_list(dataset_dir, data, filename):
+    '''
+    Saves each element of the data as a tensor in a list
+    Data: list of lists of integers (n_samples, seq_length) where seq_length can vary per sample'''
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Saving {filename}...")
+
+    if os.path.exists(os.path.join(dataset_dir, filename)):
+        print(f"{filename} already exists. Skipping.")
+        return
+
+    # Transform each samples to tensors
+    data_t = []
+    for sample in data:
+        # Ensure elements are integers
+        sample = [int(token) for token in sample]
+        data_t.append(torch.tensor(sample))
+    
+    
+    print(f"{filename} dtype: {data.dtype}, shape: {data.shape}")
+
+
+
+    data = data.long().to(device)
+    torch.save(data, os.path.join(dataset_dir, filename))
+
+def del_padded_rows_packed(X_train, y_train, X_val, y_val, X_test, y_test):
+    '''Same as delete_padded_rows() but now for data that is later used for packed sequences in pytorch
+    => I hardcoded PAD_ID as 0 too!!'''
+
+    def clean(X,Y):
+        '''Little helper function that actually deletes the rows that only consist of 0 (the padding ID) '''
+        X_clean = []
+        Y_clean = []
+        
+        for x, y in zip(X, Y):
+            # Only append that sample/label pair of both of them have an entry different from 0
+            if torch.any(x) and torch.any(y):
+                X_clean.append(x)
+                Y_clean.append(y)
+    
+        return X_clean, Y_clean
+    
+    X_train, y_train = clean(X_train, y_train)
+    X_val, y_val = clean(X_val, y_val)
+    X_test, y_test = clean(X_test, y_test)
+
+    return X_train, y_train, X_val, y_val, X_test, y_test
+
+def processing_pipeline_packed(dataset_dir, name, load_tokenizer = False):
+    """
+    This is the pipeline you have to use when working with padded_packed sequences later
+    It process the data by splitting it into train, validation, and test sets,
+    tokenizing the data, converts each sample into a tensor, collects all samples in a list
+    and saves these lists of tensors of variable length for later. 
+    """
+    df = pd.read_csv(os.path.join(dataset_dir, name + '.csv'))
+    maxlen_text = df["text"].str.split().str.len().max()
+    maxlen_summary = df["summary"].str.split().str.len().max()
+    print("Max length of text:", maxlen_text)
+    print("Max length of summary:", maxlen_summary)
+
+    # Split the data into train, validation, and test sets
+    X_train, X_middle, y_train, y_middle = train_test_split(df.text, df.summary, test_size = 0.3, random_state=42)
+    X_val, X_test, y_val, y_test = train_test_split(X_middle, y_middle, test_size = 0.4, random_state=42)
+
+
+    del df
+
+    # Tokenize the data => The outputs are lists of lists containing integers => dim (n_samples, seq_lengths)
+    X_train, X_val, X_test, y_train, y_val, y_test = tokenize_data(X_train, X_val, X_test, y_train, y_val, y_test, dataset_dir, load_tokenizer)
+    
+    # Delete samples/labels that have only padding at either samples or labels
+    X_train, y_train, X_val, y_val, X_test, y_test = del_padded_rows_packed(X_train, y_train, X_val, y_val, X_test, y_test)
+
+    # Save the lists as lists of tensors
+    save_as_tensor_list(X_train)
+    save_as_tensor_list(dataset_dir, X_train, "x_train_list.pt")
+    del X_train
+    save_as_tensor_list(dataset_dir, X_val, "x_val_list.pt")
+    del X_val
+    save_as_tensor_list(dataset_dir, X_test, "x_test_list.pt")
+    del X_test
+    save_as_tensor_list(dataset_dir, y_train, "y_train_list.pt")
+    del y_train
+    save_as_tensor_list(dataset_dir, y_val, "y_val_list.pt")
+    del y_val
+    save_as_tensor_list(dataset_dir, y_test, "y_test_list.pt")
+    del y_test
