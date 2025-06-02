@@ -184,10 +184,10 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
 
     # Load the dataset
     if legacy:
-        X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"))
-        X_val = torch.load(os.path.join(dataset_dir, "x_val.pt"))
-        y_train = torch.load(os.path.join(dataset_dir, "y_train.pt"))
-        y_val = torch.load(os.path.join(dataset_dir, "y_val.pt"))
+        X_train = torch.load(os.path.join(dataset_dir, "x_train.pt"), map_location=device)
+        X_val = torch.load(os.path.join(dataset_dir, "x_val.pt"), map_location=device)
+        y_train = torch.load(os.path.join(dataset_dir, "y_train.pt"), map_location=device)
+        y_val = torch.load(os.path.join(dataset_dir, "y_val.pt"), map_location=device)
         train_dataloader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(X_train, y_train),
             batch_size=batch_size,
@@ -199,10 +199,10 @@ def training_loop(root_dir, checkpoint_path, feature_tokenizer, device, name, mo
             shuffle=True,
             )
     else:
-        X_train = torch.load(os.path.join(dataset_dir, "x_train_list.pt"))
-        X_val = torch.load(os.path.join(dataset_dir, "x_val_list.pt"))
-        y_train = torch.load(os.path.join(dataset_dir, "y_train_list.pt"))
-        y_val = torch.load(os.path.join(dataset_dir, "y_val_list.pt"))
+        X_train = torch.load(os.path.join(dataset_dir, "x_train_list.pt"), map_location=device)
+        X_val = torch.load(os.path.join(dataset_dir, "x_val_list.pt"), map_location=device)
+        y_train = torch.load(os.path.join(dataset_dir, "y_train_list.pt"), map_location=device)
+        y_val = torch.load(os.path.join(dataset_dir, "y_val_list.pt"), map_location=device)
 
         train_dataloader = create_packed_dataloader(X_train, y_train, pad_id=0, 
                                                     batch_size=batch_size, shuffle=True)
@@ -264,8 +264,8 @@ def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_s
     if legacy:
         dataset_dir = os.path.join(root_dir, 'data', name)
         
-        X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"))
-        y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"))
+        X_test = torch.load(os.path.join(dataset_dir, "x_test.pt"), map_location=device)
+        y_test = torch.load(os.path.join(dataset_dir, "y_test.pt"), map_location=device)
         
         test_dataloader = torch.utils.data.DataLoader(
             torch.utils.data.TensorDataset(X_test, y_test),
@@ -275,8 +275,8 @@ def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_s
     else:
         dataset_dir = os.path.join(root_dir, 'data_packed', name)
         
-        X_test = torch.load(os.path.join(dataset_dir, "x_test_list.pt"))
-        y_test = torch.load(os.path.join(dataset_dir, "y_test_list.pt"))
+        X_test = torch.load(os.path.join(dataset_dir, "x_test_list.pt"), map_location=device)
+        y_test = torch.load(os.path.join(dataset_dir, "y_test_list.pt"), map_location=device)
         
         test_dataloader = create_packed_dataloader(X_test, y_test, pad_id=0, 
                                                    batch_size=batch_size, shuffle=True)
@@ -446,7 +446,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Train a Seq2Seq model with attention.')
     parser.add_argument('--legacy', type=bool, default=False, help="Whether to use packed sequences (legacy=False) or not (legacy=True)")
     parser.add_argument('--name', type=str, default="WikiHow", help='Name of the dataset')
-    parser.add_argument('--directory', type=str, default=Path.cwd().parent, help='Directory of the dataset')
+    parser.add_argument('--directory', type=str, default=Path.cwd(), help='Directory of the dataset')
     parser.add_argument('--hidden_size', type=int, default=128, help='Hidden size of the model')
     parser.add_argument('--max_length', type=int, default=50, help='Maximum length of the sequences')
     parser.add_argument('--learning_rate', type=float, default=0.001, help='Learning rate')
