@@ -306,7 +306,7 @@ def evaluate(root_dir, name, device, feature_tokenizer, checkpoint_path, batch_s
     print('Test loss: {:.4f}'.format(test_loss))
 
     # Evaluate the model
-    metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, legacy=legacy)
+    metrics = evaluate_model(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, legacy=legacy, test=True)
     print_metrics(metrics)
     # Get a random sample from the test set
     inference_testing(encoder, decoder, test_dataloader, feature_tokenizer.index2word, EOS_token, nb_decoding_test=5, legacy=legacy)
