@@ -162,7 +162,7 @@ class EncoderRNN_packed(nn.Module):
     
         embedded = self.dropout(self.embedding(input))  # (B, S, H)
         # Pack to feed to GRU
-        embedded_packed = pack_padded_sequence(embedded, lengths, batch_first=True, enforce_sorted=False)
+        embedded_packed = pack_padded_sequence(embedded, lengths.cpu(), batch_first=True, enforce_sorted=False)
 
         output_packed, hidden = self.gru(embedded_packed)
 
