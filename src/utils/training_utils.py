@@ -5,6 +5,7 @@ import numpy as np
 import torch
 from ignite.metrics import Rouge
 from matplotlib import pyplot as plt
+from tqdm import tqdm
 from torcheval.metrics.functional import bleu_score
 
 def train_epoch_packed(
