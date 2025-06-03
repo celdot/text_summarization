@@ -9,7 +9,7 @@ from utils.models import EncoderRNN, EncoderRNN_packed, AttnDecoderRNN, AttnDeco
 from utils.inference import summarize_on_cpu
 
 # ------------------------- Constants -------------------------
-MAX_INPUT_LEN = 400  # You control this; user cannot change it
+MAX_INPUT_LEN = 1000  # You control this; user cannot change it
 
 # ------------------------- Sidebar Configuration -------------------------
 st.sidebar.header("Configuration")
@@ -62,11 +62,13 @@ encoder, decoder, tokenizer, device = load_all(
 # ------------------------- Utility Functions -------------------------
 def convert_input(text, tokenizer):
     text = re.sub(r'[^a-zA-Z0-9\s]', '', text).lower().strip()
+    # Add SOS and EOS like in training
+    text = f"SOS {text} EOS"
     token_ids = tokenizer.texts_to_sequences([text])[0]
     return token_ids
 
 # ------------------------- Streamlit UI -------------------------
-st.title("Text Summarizer (GRU Encoder-Decoder)")
+st.title("Text Summarizer")
 
 input_method = st.radio("Choose input method", ["Type text", "Upload .txt file"])
 user_text = ""
