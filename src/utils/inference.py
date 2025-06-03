@@ -44,7 +44,7 @@ def summarize_on_cpu(input_tensor, encoder, decoder, EOS_token, index2word, lega
             encoder_outputs, encoder_hidden = encoder(input_tensor)
             decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
         else:
-            input_lengths = torch.tensor(input_tensor.shape[1])
+            input_lengths = torch.tensor(input_tensor.shape[1], dtype=torch.int64).unsqueeze(0)
             encoder_mask = (input_tensor != 0)
             encoder_outputs, encoder_hidden = encoder(input_tensor, input_lengths,encoder_mask)
             decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden,encoder_mask, target_tensor)

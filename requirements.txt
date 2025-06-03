@@ -8,3 +8,4 @@ pytorch-ignite
 torcheval
 optuna
 plotly
+streamlit
