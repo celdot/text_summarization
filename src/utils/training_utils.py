@@ -192,7 +192,10 @@ def decode_data(text_ids, index2word, EOS_token):
     """
     Converts the text ids to words using the index2word mapping.
     """
+    max_eos = 1
+    eos_counter = 0
     if text_ids.dim() > 1:
+        max_eos = text_ids.shape[0] # because if we have batches in there we excpect batch_size mane eos!!
         text_ids = text_ids.view(-1)  # Flatten to 1D
 
     decoded_words = []
@@ -200,7 +203,10 @@ def decode_data(text_ids, index2word, EOS_token):
         # Ensure idx is a scalar
         if isinstance(idx, torch.Tensor):
             idx = idx.item()
-        if idx == EOS_token:
+        if idx == EOS_token and eos_counter < max_eos:
+            eos_counter += 1
+        
+        if idx == EOS_token and eos_counter == max_eos :
             decoded_words.append('EOS')
             break
         decoded_words.append(index2word.get(idx, 'UNK'))
@@ -212,7 +218,8 @@ def make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, lega
     Computes the summary for the given input tensor.
     NOTE: If legacy==False => must provide input_lengths!!
     """
-    input_tensor = input_tensor[0].unsqueeze(0)
+    # input_tensor = input_tensor[0].unsqueeze(0)
+    input_tensor = input_tensor
     target_tensor = None  # Set target_tensor to None for inference
 
     
@@ -220,9 +227,11 @@ def make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, lega
         encoder_outputs, encoder_hidden = encoder(input_tensor)
         decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, target_tensor)
     else:
+        # Shorten input_lengths as well (NOTE: DONT DO THAT UNLESS YOURE DEBUGGING AND WANT IT TO GO FASTER!!)
+        # input_lengths = input_lengths[0].unsqueeze(0)
+        # Truncate the input_tensor to match its actual length to avoid extra padding (NOTE: SAME AS ABOVE)
+        # input_tensor = input_tensor[:, :input_lengths.item()]  # remove padding at end
         encoder_mask = (input_tensor != 0)
-        # Shorten input_lengths as well
-        input_lengths = input_lengths[0].unsqueeze(0)
         encoder_outputs, encoder_hidden = encoder(input_tensor, input_lengths, encoder_mask)
         decoder_outputs, _, _ = decoder(encoder_outputs, encoder_hidden, encoder_mask, target_tensor)
 
@@ -262,24 +271,30 @@ def compute_metrics(predictions, targets, n1=1, n2=2):
 
     return metrics
 
-def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token, legacy=False):
+def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token, legacy=False, test=False):
     encoder.eval()
     decoder.eval()
 
     predictions = []
+    predictions_lengths = []
     targets = []
+    targets_lengths = []
     total_batches = len(dataloader)
 
     with torch.no_grad():
         if legacy:
             for idx, data in enumerate(dataloader):
                 input_tensor, target_tensor = data
+                batch_size = input_tensor.shape[0]
 
                 predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token)
-                target_words = decode_data(target_tensor[0], index2word, EOS_token)
+                # target_words = decode_data(target_tensor[0], index2word, EOS_token) # NOTE: ONLY FOR DEBUGGING
+                target_words = decode_data(target_tensor, index2word, EOS_token) # NOTE: Returns the string flattened over all samples in the batch
 
                 predictions.append(predicted_words)
+                predictions_lengths.append(len(predicted_words.split())/batch_size) # divide by batch size as the decode_data function only returns a single string
                 targets.append(target_words)
+                targets_lengths.append(len(target_words.split())/batch_size)
 
                 percent_complete = (idx / total_batches) * 100
                 print("\r", end="")  # Move cursor up and clear line
@@ -287,31 +302,40 @@ def evaluate_model(encoder, decoder, dataloader, index2word, EOS_token, legacy=F
         else:
             for idx, data in enumerate(dataloader):
                 input_tensor, input_lengths, target_tensor, target_lengths = data
-            
+                batch_size = input_tensor.shape[0]
 
                 predicted_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, legacy=legacy, input_lengths=input_lengths)
-                target_words = decode_data(target_tensor[0], index2word, EOS_token)
+                # target_words = decode_data(target_tensor[0], index2word, EOS_token) # NOTE: ONLY FOR DEBUGGING
+                target_words = decode_data(target_tensor, index2word, EOS_token) 
 
                 predictions.append(predicted_words)
+                predictions_lengths.append(len(predicted_words.replace('SOS','').replace('EOS','').strip().split())/batch_size)
                 targets.append(target_words)
+                targets_lengths.append(len(target_words.replace('SOS','').replace('EOS','').strip().split())/batch_size)
+
 
                 percent_complete = (idx / total_batches) * 100
                 print("\r", end="")  # Move cursor up and clear line
                 print(f'Evaluating model: {percent_complete:.2f}%', end="")
-
+    if test:
+        # Remove SOS and EOS tokens from predictions and targets
+        print(f'The average generated summary has {sum(predictions_lengths)/len(predictions_lengths)} words.')
+        print(f'The average generated summary has {sum(targets_lengths)/len(targets_lengths)} words.')
     return compute_metrics(predictions, targets, n1=1, n2=2)
 
 def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_decoding_test=5, writer=None, legacy=False):
     encoder.eval()
     decoder.eval()
     count_test = 0
+    # little sanity check to correct for edge cases
+    nb_decoding_test = min(len(dataloader), nb_decoding_test)
     random_list = random.sample(range(len(dataloader)), nb_decoding_test)
     with torch.no_grad():
         if legacy:
             for i, data in enumerate(dataloader):
                 if i in random_list:
                     input_tensor, target_tensor = data
-                    decoded_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, legacy=legacy)
+                    decoded_words = make_predictions(encoder, decoder, input_tensor[0].unsqueeze(0), index2word, EOS_token, legacy=legacy)
                     input_text = decode_data(input_tensor[0], index2word, EOS_token)
                     target_text = decode_data(target_tensor[0], index2word, EOS_token)
 
@@ -332,6 +356,11 @@ def inference_testing(encoder, decoder, dataloader, index2word, EOS_token, nb_de
             for i, data in enumerate(dataloader):
                 if i in random_list:
                     input_tensor, input_lengths, target_tensor, target_lengths = data
+                    input_lengths=input_lengths[0:1]
+                    input_tensor = input_tensor[0].unsqueeze(0)
+
+                    # Truncate the input_tensor to match its actual length to avoid extra padding
+                    input_tensor = input_tensor[:, :input_lengths.item()]  # remove padding at end
                     decoded_words = make_predictions(encoder, decoder, input_tensor, index2word, EOS_token, legacy=legacy, input_lengths=input_lengths)
                     input_text = decode_data(input_tensor[0], index2word, EOS_token)
                     target_text = decode_data(target_tensor[0], index2word, EOS_token)
