@@ -74,6 +74,7 @@ def train_epoch_packed(
                 if no_improvement_count >= early_stopping_patience:
                     print(f"Early stopping triggered at iteration {iteration_counter}")
                     early_stop = True  # signal to stop training
+                    break # abort training 
 
             if not tuning:
                 print(f"[Iter {iteration_counter}] Train loss: {avg_train_loss:.4f}, Val loss: {val_loss:.4f}")
@@ -94,7 +95,7 @@ def train_epoch_packed(
 
         iteration_counter += 1
 
-    return early_stop
+    return early_stop, no_improvement_count, best_val_loss_ref
 
 
 def plot_metrics(figures_dir, train_losses, val_losses, val_metrics, log_every, iterations_per_epoch):
