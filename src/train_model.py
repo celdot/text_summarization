@@ -144,7 +144,7 @@ def train(train_dataloader, val_dataloader, encoder, decoder, criterion,
                 break
     else:
         for _ in range(1, n_epochs + 1):
-            early_stop = train_epoch_packed(
+            early_stop, no_improvement_count, best_val_loss = train_epoch_packed(
                 train_dataloader, encoder, decoder,
                 encoder_optimizer, decoder_optimizer, criterion,
                 val_dataloader, iteration_counter, log_every, print_examples_every,
