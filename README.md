@@ -15,6 +15,8 @@ extent) manually.
 
 ## Running this repository
 To run this repository the WikiHow dataset must be first placed into the appropriate directory.
-Note that this code includes a legacy option which is no longer in use. As such, when using legacy = False the data file should be placed in data_packed/WikiHow.
+The data file should be placed in raw_data/WikiHow.
 After that Jupyter notebook wikihow.ipynb can be used for the complete pipeline, from preprocessing and processing of the data to the training and tuning.
 If the data was previously preprocessd the notebook wikihow_training can alternatively be used to train the model.
+
+Note that this code includes a legacy option which is no longer in use. As such, when using legacy = False
