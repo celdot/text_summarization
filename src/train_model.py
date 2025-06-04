@@ -364,7 +364,7 @@ def objective(root_dir, name, trial, legacy):
     max_length = trial.suggest_categorical('max_length', [30, 50, 100])
     learning_rate = trial.suggest_categorical('learning_rate', [1e-3, 1e-4, 1e-5])
     weight_decay = trial.suggest_categorical('weight_decay', [1e-4, 1e-5, 1e-6])
-    early_stopping_patience = trial.suggest_categorical('early_stopping_patience', [3, 5, 10])
+    early_stopping_patience = trial.suggest_categorical('early_stopping_patience', [2, 4, 6])
 
     # Wrap parameters
     optimizer_hyperparams = {
